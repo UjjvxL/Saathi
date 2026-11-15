@@ -26,6 +26,9 @@ test.describe("accounts", () => {
 
     await page.goto("/login");
     await page.getByRole("link", { name: "Forgot password?" }).click();
+    // Next keeps the login page on screen until the new page is ready, so typing straight away could
+    // fill the login form's Email field instead (this happened on slower CI machines).
+    await page.waitForURL("**/forgot-password");
     await field(page, "Email").fill(email);
     await page.getByRole("button", { name: "Send reset link" }).click();
     await expect(page.getByText("Check your email")).toBeVisible();
