@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
-export type ButtonVariant = "primary" | "secondary" | "success" | "danger" | "warning" | "ghost" | "link";
+export type ButtonVariant = "primary" | "secondary" | "success" | "danger" | "warning" | "ghost" | "link" | "inverse";
 export type ButtonSize = "sm" | "md" | "lg";
 
 // Filled variants keep at least 4.5:1 contrast with their text (WCAG AA).
@@ -14,6 +14,8 @@ const VARIANTS: Record<ButtonVariant, string> = {
   warning: "bg-amber-700 text-white shadow-sm hover:bg-amber-800",
   ghost: "text-stone-700 hover:bg-stone-100 hover:text-stone-900",
   link: "text-teal-800 underline-offset-4 hover:underline",
+  /** For dark backgrounds. */
+  inverse: "border border-white/25 bg-white/5 text-white hover:border-white/50 hover:bg-white/10",
 };
 
 const SIZES: Record<ButtonSize, string> = {

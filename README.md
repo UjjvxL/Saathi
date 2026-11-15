@@ -271,6 +271,10 @@ flowchart TB
 
 - **Next.js 16** (App Router, Server Components, Server Actions, Partial Prerendering) and **TypeScript**.
 - **Tailwind CSS 4**, Geist and Instrument Serif fonts, lucide icons.
+- **Motion**, **Lenis** and **three.js** for the landing page:
+  - animations, smooth scrolling and the cursor effect;
+  - the 3D capsule, which is loaded on demand;
+  - everything respects “reduce motion”.
 - **MongoDB Atlas** with Mongoose.
 - **Own authentication**:
   - bcrypt password hashes;
