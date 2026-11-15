@@ -7,13 +7,13 @@ import { logActivity } from "@/lib/activity";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { authorizeMember, ForbiddenError } from "@/lib/auth/guard";
 import { burnVerifyTime, hashSecret, verifySecret } from "@/lib/auth/password";
-import { ROLE_LABELS } from "@/lib/constants";
+import { INVITE_TTL_DAYS, ROLE_LABELS } from "@/lib/constants";
 import { connectDB, isDuplicateKeyError } from "@/lib/db";
 import { toProfileDTO } from "@/lib/dto";
 import { isEmailConfigured, sendEmail } from "@/lib/email/mailer";
 import { testEmail } from "@/lib/email/templates";
 import { env } from "@/lib/env";
-import { Activity, Appointment, DoseLog, Medication, Membership, Profile, ReminderLog, User } from "@/lib/models";
+import { Activity, Alert, Appointment, DoseLog, Medication, Membership, Profile, ReminderLog, User } from "@/lib/models";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { notifyMemberJoined, runReminders } from "@/lib/reminders";
 import { generateCareId, generatePasscode } from "@/lib/security";
@@ -68,6 +68,7 @@ export async function createProfile(_prev: CreateProfileState, formData: FormDat
         careId,
         passcodeHash,
         passcodeUpdatedAt: new Date(),
+        passcodeExpiresAt: inviteExpiry(),
         createdBy: user.id,
       });
       profileId = profile._id.toString();
@@ -136,6 +137,13 @@ export async function joinProfile(_prev: FormState, formData: FormData): Promise
   if (!profileDoc || !valid) {
     return { message: "That Care ID and passcode don’t match. Check with the person who shared them.", values };
   }
+  // Checked only after a correct passcode, so it reveals nothing to someone guessing.
+  if (new Date(toProfileDTO(profileDoc).passcodeExpiresAt).getTime() <= Date.now()) {
+    return {
+      message: "This passcode has expired. Ask an admin of the care circle to generate a new one.",
+      values,
+    };
+  }
 
   const profileId = profileDoc._id.toString();
   const alreadyMember = await Membership.exists({ profileId, userId: user.id });
@@ -172,22 +180,48 @@ export interface PasscodeState extends FormState {
   passcode?: string;
 }
 
+function inviteExpiry(): Date {
+  return new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+}
+
 export async function regeneratePasscode(profileId: string, _prev: PasscodeState, _formData: FormData): Promise<PasscodeState> {
   return guarded(async () => {
     const context = await authorizeMember(profileId, { admin: true });
     const passcode = generatePasscode();
     await Profile.updateOne(
       { _id: profileId },
-      { $set: { passcodeHash: await hashSecret(passcode), passcodeUpdatedAt: new Date() } },
+      {
+        $set: { passcodeHash: await hashSecret(passcode), passcodeUpdatedAt: new Date(), passcodeExpiresAt: inviteExpiry() },
+      },
     );
     await logActivity({
       profileId,
       actorId: context.user.id,
       actorName: context.user.name,
       kind: "profile",
-      message: `${context.user.name} generated a new passcode (the old one no longer works)`,
+      message: `${context.user.name} generated a new passcode, valid for ${INVITE_TTL_DAYS} days (the old one no longer works)`,
+      status: "invitations-open",
     });
+    refresh();
     return { ok: true, passcode };
+  });
+}
+
+/** Stops the current passcode from working, without creating a new one. */
+export async function revokeInvitations(profileId: string, _prev: FormState, _formData: FormData): Promise<FormState> {
+  return guarded(async () => {
+    const context = await authorizeMember(profileId, { admin: true });
+    await Profile.updateOne({ _id: profileId }, { $set: { passcodeExpiresAt: new Date() } });
+    await logActivity({
+      profileId,
+      actorId: context.user.id,
+      actorName: context.user.name,
+      kind: "profile",
+      message: `${context.user.name} turned off invitations (the passcode no longer works)`,
+      status: "invitations-closed",
+    });
+    refresh();
+    return { ok: true, message: "Invitations are off. Generate a new passcode when you want to invite someone." };
   });
 }
 
@@ -267,6 +301,7 @@ export async function leaveCircle(profileId: string, _prev: FormState, _formData
         Appointment.deleteMany({ profileId }),
         Activity.deleteMany({ profileId }),
         ReminderLog.deleteMany({ profileId }),
+        Alert.deleteMany({ profileId }),
       ]);
     } else {
       await logActivity({
@@ -339,8 +374,9 @@ export async function runRemindersNow(profileId: string, _prev: FormState, _form
     const summary = await runReminders(new Date(), { profileId });
     const parts = [
       `${summary.upcoming} dose reminder${summary.upcoming === 1 ? "" : "s"}`,
-      `${summary.missed} missed-dose nudge${summary.missed === 1 ? "" : "s"}`,
-      `${summary.escalated} family alert${summary.escalated === 1 ? "" : "s"}`,
+      `${summary.followUps} follow-up${summary.followUps === 1 ? "" : "s"}`,
+      `${summary.escalated} caretaker alert${summary.escalated === 1 ? "" : "s"}`,
+      `${summary.widened} widened alert${summary.widened === 1 ? "" : "s"}`,
       `${summary.appointments} appointment reminder${summary.appointments === 1 ? "" : "s"}`,
       `${summary.lowStock} low-stock alert${summary.lowStock === 1 ? "" : "s"}`,
     ];

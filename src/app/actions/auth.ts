@@ -27,7 +27,8 @@ export async function signup(_prev: FormState, formData: FormData): Promise<Form
   const parsed = signupSchema.safeParse(raw);
   if (!parsed.success) return { errors: fieldErrors(parsed.error), values };
 
-  const limit = await rateLimit(`signup-ip:${await clientIp()}`, 10, 60 * 60);
+  // Generous enough for families behind one shared (carrier) IP address.
+  const limit = await rateLimit(`signup-ip:${await clientIp()}`, 20, 60 * 60);
   if (!limit.allowed) return { message: "Too many new accounts from this network. Please try again later.", values };
 
   await connectDB();

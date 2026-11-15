@@ -30,7 +30,7 @@ test.describe("accessibility", () => {
 
     const { profilePath } = await createCareProfile(page, "Kamala Devi", uniqueEmail("kamala"));
     await addMedicine(page, profilePath, "Metformin", "500 mg", indiaTime(30));
-    for (const path of ["/dashboard", profilePath, `${profilePath}/medications`, `${profilePath}/medications/new`, `${profilePath}/appointments`, `${profilePath}/history`, `${profilePath}/circle`, "/join", "/profiles/new"]) {
+    for (const path of ["/dashboard", profilePath, `${profilePath}/medications`, `${profilePath}/medications/new`, `${profilePath}/appointments`, `${profilePath}/timeline`, `${profilePath}/circle`, `${profilePath}/settings`, "/join", "/profiles/new"]) {
       await page.goto(path);
       await page.waitForLoadState("networkidle");
       await expectAccessible(page);

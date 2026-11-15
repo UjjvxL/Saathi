@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { AssigneeSelect } from "@/components/assignee-select";
 import { MedicationForm, type MedicationFormValues } from "@/components/medication-form";
 import { PasscodePanel } from "@/components/passcode-panel";
 import { ProfileForm } from "@/components/profile-form";
@@ -19,6 +20,7 @@ const emptyMedication: MedicationFormValues = {
   stock: "",
   unitsPerDose: "1",
   refillThreshold: "",
+  assigneeId: "",
 };
 
 describe("MedicationForm", () => {
@@ -92,18 +94,98 @@ describe("PasscodePanel", () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const action = vi.fn(async () => ({ ok: true, passcode: "918273" }));
-    render(<PasscodePanel careId="K7M2XQ" elderName="Kamala" action={action} canRegenerate updatedLabel="15 Nov 2026" />);
+    render(
+      <PasscodePanel
+        careId="K7M2XQ"
+        elderName="Kamala"
+        action={action}
+        canRegenerate
+        updatedLabel="15 Nov 2026"
+        expiresLabel="22 Nov, 3:15 PM"
+        expired={false}
+      />,
+    );
 
     expect(screen.getByText(/Hidden · set 15 Nov 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/works until 22 Nov, 3:15 PM/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Generate a new passcode/ }));
     expect(await screen.findByText("918273")).toBeInTheDocument();
     expect(screen.getByText(/shown only once/)).toBeInTheDocument();
   });
 
   it("tells non-admins who to ask", () => {
-    render(<PasscodePanel careId="K7M2XQ" elderName="Kamala" action={vi.fn()} canRegenerate={false} updatedLabel="today" />);
+    render(
+      <PasscodePanel
+        careId="K7M2XQ"
+        elderName="Kamala"
+        action={vi.fn()}
+        canRegenerate={false}
+        updatedLabel="today"
+        expiresLabel="22 Nov"
+        expired={false}
+      />,
+    );
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.getByText(/Ask an admin/)).toBeInTheDocument();
+  });
+
+  it("says when invitations are off, and lets admins turn them off", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const revoke = vi.fn(async () => ({ ok: true, message: "Invitations are off." }));
+    const { rerender } = render(
+      <PasscodePanel
+        careId="K7M2XQ"
+        elderName="Kamala"
+        action={vi.fn()}
+        revokeAction={revoke}
+        canRegenerate
+        updatedLabel="today"
+        expiresLabel="22 Nov"
+        expired={false}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /Turn off invitations/ }));
+    await waitFor(() => expect(revoke).toHaveBeenCalled());
+
+    rerender(
+      <PasscodePanel
+        careId="K7M2XQ"
+        elderName="Kamala"
+        action={vi.fn()}
+        revokeAction={revoke}
+        canRegenerate
+        updatedLabel="today"
+        expiresLabel="22 Nov"
+        expired
+      />,
+    );
+    expect(screen.getByText(/Invitations are off/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Turn off invitations/ })).toBeNull();
+  });
+});
+
+describe("AssigneeSelect", () => {
+  const members = [
+    { userId: "u1", name: "Priya Nair", role: "caretaker" as const },
+    { userId: "u2", name: "Rahul Sharma", role: "family" as const },
+  ];
+
+  it("lists the circle's members with their roles", () => {
+    render(<AssigneeSelect label="Responsible person" members={members} defaultValue="u1" canAssign />);
+    const select = screen.getByLabelText("Responsible person");
+    expect(select).toHaveValue("u1");
+    expect(screen.getByRole("option", { name: "Nobody in particular" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Rahul Sharma (family)" })).toBeInTheDocument();
+  });
+
+  it("is read-only without permission, keeping the current choice", () => {
+    const { container } = render(
+      <AssigneeSelect label="Responsible person" members={members} defaultValue="u2" canAssign={false} />,
+    );
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByText("Rahul Sharma (family)")).toBeInTheDocument();
+    expect(container.querySelector('input[name="assigneeId"]')).toHaveValue("u2");
   });
 });
 

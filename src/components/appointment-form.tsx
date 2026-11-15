@@ -3,14 +3,43 @@
 import { CalendarPlus } from "lucide-react";
 import { useActionState } from "react";
 import type { FormState } from "@/lib/validation";
+import { AssigneeSelect, type AssignableMember } from "./assignee-select";
+import { ButtonLink } from "./ui/button";
 import { TextAreaField, TextField } from "./ui/field";
 import { FormMessage, SubmitButton } from "./ui/form-bits";
 
 type FormAction = (state: FormState, formData: FormData) => Promise<FormState>;
 
-export function AppointmentForm({ action, defaultDate }: { action: FormAction; defaultDate: string }) {
+export interface AppointmentFormValues {
+  doctorName: string;
+  specialty: string;
+  location: string;
+  date: string;
+  time: string;
+  notes: string;
+  assigneeId: string;
+}
+
+export function AppointmentForm({
+  action,
+  defaultDate,
+  initial,
+  members = [],
+  canAssign = false,
+  submitLabel = "Save appointment",
+  cancelHref,
+}: {
+  action: FormAction;
+  defaultDate: string;
+  /** Existing values when editing. */
+  initial?: AppointmentFormValues;
+  members?: AssignableMember[];
+  canAssign?: boolean;
+  submitLabel?: string;
+  cancelHref?: string;
+}) {
   const [state, formAction, pending] = useActionState(action, {});
-  const value = (key: string, fallback = "") => state.values?.[key] ?? fallback;
+  const value = (key: keyof AppointmentFormValues, fallback = "") => state.values?.[key] ?? initial?.[key] ?? fallback;
 
   return (
     <form action={formAction} className="space-y-5">
@@ -62,9 +91,24 @@ export function AppointmentForm({ action, defaultDate }: { action: FormAction; d
         defaultValue={value("notes")}
         error={state.errors?.notes}
       />
-      <SubmitButton pending={pending} size="lg">
-        <CalendarPlus aria-hidden="true" /> Save appointment
-      </SubmitButton>
+      <AssigneeSelect
+        label="Who is taking care of this visit?"
+        hint="For example, who goes along. They’ll see it in their responsibilities."
+        members={members}
+        defaultValue={value("assigneeId")}
+        error={state.errors?.assigneeId}
+        canAssign={canAssign}
+      />
+      <div className="flex flex-wrap gap-3">
+        <SubmitButton pending={pending} size="lg">
+          <CalendarPlus aria-hidden="true" /> {submitLabel}
+        </SubmitButton>
+        {cancelHref ? (
+          <ButtonLink href={cancelHref} variant="ghost" size="lg">
+            Cancel
+          </ButtonLink>
+        ) : null}
+      </div>
     </form>
   );
 }

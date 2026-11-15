@@ -1,4 +1,5 @@
 // Factories and helpers shared by the integration tests.
+import type { Types } from "mongoose";
 import { expect } from "vitest";
 import { signSession } from "@/lib/auth/jwt";
 import { hashSecret } from "@/lib/auth/password";
@@ -88,6 +89,7 @@ export async function createMedication(
     active: boolean;
     scheduleChangedAt: Date;
     instructions: string;
+    assigneeId: Types.ObjectId | null;
   }> = {},
 ) {
   return Medication.create({

@@ -17,9 +17,11 @@ import {
   doseKey,
   doseStatus,
   dosesForDate,
+  formatTime12h,
   shiftDate,
   summarizeAdherence,
   todayInZone,
+  zonedToUtc,
   type AdherenceSummary,
 } from "./schedule";
 import type {
@@ -33,7 +35,7 @@ import type {
   MembershipDTO,
   ProfileDTO,
 } from "./types";
-import type { AlertStatus } from "./constants";
+import type { ActivityKind, AlertStatus } from "./constants";
 
 function asLogStatus(value: unknown): DoseLogStatus | null {
   return DOSE_LOG_STATUSES.includes(value as DoseLogStatus) ? (value as DoseLogStatus) : null;
@@ -201,6 +203,13 @@ export async function getDashboard(userId: string, now: Date = new Date()): Prom
     .sort((a, b) => a.profile.name.localeCompare(b.profile.name));
 }
 
+export async function getAppointment(profileId: string, appointmentId: string): Promise<AppointmentDTO | null> {
+  if (!mongoose.isValidObjectId(appointmentId)) return null;
+  await connectDB();
+  const doc = await Appointment.findOne({ _id: appointmentId, profileId }).lean();
+  return doc ? toAppointmentDTO(doc) : null;
+}
+
 export async function getAppointments(
   profileId: string,
   now: Date = new Date(),
@@ -300,4 +309,175 @@ export async function getMembers(profileId: string): Promise<MemberDTO[]> {
       },
     ];
   });
+}
+
+/** One thing someone in the circle is responsible for: a dose of their medicine, a visit, or an alert. */
+export interface Responsibility {
+  key: string;
+  kind: "dose" | "appointment" | "alert";
+  title: string;
+  /** ISO instant it's due (or happened). */
+  when: string;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  /** The dose, appointment or alert status. */
+  status: string;
+  doneByName: string | null;
+  doneAt: string | null;
+}
+
+export interface CareCircleOverview {
+  members: MemberDTO[];
+  /** Open or acknowledged alerts from the last 48 hours. */
+  openAlerts: AlertDTO[];
+  pending: Responsibility[];
+  /** Done today (doses, follow-ups) or in the last 7 days (visits). */
+  completed: Responsibility[];
+  unassignedMedicines: MedicationDTO[];
+  /** userId -> what they're responsible for. */
+  assignments: Record<string, string[]>;
+  recentActivity: ActivityDTO[];
+  /** Whether the current passcode has expired or was turned off. */
+  inviteExpired: boolean;
+}
+
+const HOUR = 60 * 60 * 1000;
+
+export async function getCareCircleOverview(profile: ProfileDTO, now: Date = new Date()): Promise<CareCircleOverview> {
+  await connectDB();
+  const today = todayInZone(profile.timezone, now);
+  const [members, meds, appointmentDocs, alertDocs, recentActivity] = await Promise.all([
+    getMembers(profile.id),
+    getMedications(profile.id),
+    Appointment.find({
+      profileId: profile.id,
+      assigneeId: { $ne: null },
+      dateTime: { $gte: new Date(now.getTime() - 7 * 24 * HOUR), $lte: new Date(now.getTime() + 14 * 24 * HOUR) },
+    })
+      .sort({ dateTime: 1 })
+      .lean(),
+    Alert.find({ profileId: profile.id, slot: { $gte: new Date(now.getTime() - 48 * HOUR) } })
+      .sort({ slot: -1 })
+      .lean(),
+    getActivity(profile.id, 8),
+  ]);
+  const doses = await getDoseItems(profile, [today], now, meds);
+  const nameOf = new Map(members.map((member) => [member.userId, member.name]));
+  const assigneeName = (id: string | null) => (id ? (nameOf.get(id) ?? null) : null);
+
+  const pending: Responsibility[] = [];
+  const completed: Responsibility[] = [];
+
+  for (const dose of doses) {
+    if (!dose.assigneeId) continue;
+    const item: Responsibility = {
+      key: `dose:${dose.key}`,
+      kind: "dose",
+      title: [dose.name, dose.dosage].filter(Boolean).join(" "),
+      when: dose.scheduledFor,
+      assigneeId: dose.assigneeId,
+      assigneeName: assigneeName(dose.assigneeId),
+      status: dose.status,
+      doneByName: dose.loggedByName,
+      doneAt: dose.loggedAt,
+    };
+    if (dose.status === "taken" || dose.status === "skipped" || dose.status === "missed") completed.push(item);
+    else pending.push(item);
+  }
+
+  for (const appointment of appointmentDocs.map(toAppointmentDTO)) {
+    const item: Responsibility = {
+      key: `appointment:${appointment.id}`,
+      kind: "appointment",
+      title: `Visit to ${appointment.doctorName}`,
+      when: appointment.dateTime,
+      assigneeId: appointment.assigneeId,
+      assigneeName: assigneeName(appointment.assigneeId),
+      status: appointment.status,
+      doneByName: appointment.statusChangedByName,
+      doneAt: appointment.statusChangedAt,
+    };
+    if (appointment.status === "completed") completed.push(item);
+    else if (appointment.status === "scheduled" && new Date(appointment.dateTime).getTime() >= now.getTime() - 2 * HOUR) {
+      pending.push(item);
+    }
+  }
+
+  const alerts = alertDocs.map(toAlertDTO);
+  for (const alert of alerts) {
+    if (alert.status === "open") continue;
+    const at = alert.acknowledgedAt ?? alert.resolvedAt;
+    if (!at || now.getTime() - new Date(at).getTime() > 24 * HOUR) continue;
+    completed.push({
+      key: `alert:${alert.id}`,
+      kind: "alert",
+      title: `Follow-up on the ${formatTime12h(alert.localTime)} alert`,
+      when: alert.slot,
+      assigneeId: null,
+      assigneeName: alert.acknowledgedByName ?? alert.resolvedByName,
+      status: alert.status,
+      doneByName: alert.acknowledgedByName ?? alert.resolvedByName,
+      doneAt: at,
+    });
+  }
+
+  const assignments: Record<string, string[]> = {};
+  const assign = (userId: string | null, what: string) => {
+    if (userId) assignments[userId] = [...(assignments[userId] ?? []), what];
+  };
+  for (const med of meds.filter((m) => m.active)) assign(med.assigneeId, [med.name, med.dosage].filter(Boolean).join(" "));
+  for (const item of pending.filter((p) => p.kind === "appointment")) assign(item.assigneeId, item.title);
+
+  const byWhen = (a: Responsibility, b: Responsibility) => a.when.localeCompare(b.when);
+  return {
+    members,
+    openAlerts: alerts.filter((alert) => alert.status !== "resolved"),
+    pending: pending.sort(byWhen),
+    completed: completed.sort((a, b) => (b.doneAt ?? b.when).localeCompare(a.doneAt ?? a.when)),
+    unassignedMedicines: meds.filter((med) => med.active && !med.assigneeId),
+    assignments,
+    recentActivity,
+    inviteExpired: new Date(profile.passcodeExpiresAt).getTime() <= now.getTime(),
+  };
+}
+
+export interface TimelineFilters {
+  /** Local dates (YYYY-MM-DD) in the profile's timezone, inclusive. */
+  from: string;
+  to: string;
+  /** One event type, or null for all. */
+  kind: ActivityKind | null;
+  /** A member's userId, "saathi" for automatic events, or null for everyone. */
+  member: string | null;
+}
+
+export interface TimelineResult {
+  entries: ActivityDTO[];
+  /** True when there were more entries than the page shows. */
+  truncated: boolean;
+  /** Escalations of doses due in the period, newest first. */
+  alerts: AlertDTO[];
+}
+
+/** The care timeline: every recorded event in a period, optionally filtered by type and member. */
+export async function getTimeline(profile: ProfileDTO, filters: TimelineFilters, limit = 300): Promise<TimelineResult> {
+  await connectDB();
+  const since = zonedToUtc(filters.from, "00:00", profile.timezone);
+  const until = zonedToUtc(shiftDate(filters.to, 1), "00:00", profile.timezone);
+  const query: Record<string, unknown> = { profileId: profile.id, createdAt: { $gte: since, $lt: until } };
+  if (filters.kind) query.kind = filters.kind;
+  if (filters.member === "saathi") query.actorId = null;
+  else if (filters.member && mongoose.isValidObjectId(filters.member)) {
+    // Older entries only know who acted; newer ones also list who was notified or assigned.
+    query.$or = [{ involvedUserIds: filters.member }, { actorId: filters.member }];
+  }
+
+  const [docs, alerts] = await Promise.all([
+    Activity.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit + 1)
+      .lean(),
+    getAlerts(profile.id, { since, until, limit: 60 }),
+  ]);
+  return { entries: docs.slice(0, limit).map(toActivityDTO), truncated: docs.length > limit, alerts };
 }

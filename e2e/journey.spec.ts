@@ -4,7 +4,7 @@ import { addMedicine, createCareProfile, CRON_SECRET, field, indiaTime, linkIn, 
 test("a family sets up care, shares it, and the elder confirms a dose from email", async ({ browser, request }) => {
   const elderEmail = uniqueEmail("kamala");
 
-  // Rahul creates his mother's care profile and adds a medicine due in 10 minutes.
+  // Rahul creates his mother's care profile and adds a medicine due in a few minutes.
   const rahulContext = await browser.newContext();
   const rahul = await rahulContext.newPage();
   await signUp(rahul, "Rahul Sharma", uniqueEmail("rahul"));
@@ -12,7 +12,7 @@ test("a family sets up care, shares it, and the elder confirms a dose from email
   const { careId, passcode, profilePath } = await createCareProfile(rahul, "Kamala Devi", elderEmail);
   expect(careId).toMatch(/^[A-Z2-9]{6}$/);
   expect(passcode).toMatch(/^\d{6}$/);
-  await addMedicine(rahul, profilePath, "Amlodipine", "5 mg", indiaTime(10));
+  await addMedicine(rahul, profilePath, "Amlodipine", "5 mg", indiaTime(4));
 
   // He marks it taken by mistake, then undoes it.
   await rahul.getByRole("link", { name: "Today" }).click();
@@ -45,7 +45,7 @@ test("a family sets up care, shares it, and the elder confirms a dose from email
   expect((await cron.json()).upcoming).toBeGreaterThanOrEqual(1);
 
   // Kamala opens "I've taken them" from her email, without logging in.
-  const reminder = await waitForEmail((email) => email.to === elderEmail && email.subject.startsWith("Medicine time"));
+  const reminder = await waitForEmail((email) => email.to === elderEmail && email.subject.startsWith("Medicine reminder"));
   const elderContext = await browser.newContext();
   const elder = await elderContext.newPage();
   await elder.goto(linkIn(reminder, "/confirm"));
@@ -53,10 +53,10 @@ test("a family sets up care, shares it, and the elder confirms a dose from email
   await elder.getByRole("button", { name: "Yes, I took them" }).click();
   await expect(elder.getByText(/Thank you/).first()).toBeVisible();
 
-  // Rahul sees it, and every step is in the activity log.
+  // Rahul sees it, and every step is in the care timeline.
   await rahul.reload();
   await expect(rahul.getByText(/marked by Kamala Devi \(email link\)/)).toBeVisible();
-  await rahul.getByRole("link", { name: "History" }).click();
+  await rahul.getByRole("link", { name: "Timeline" }).click();
   await expect(rahul.getByText("Priya Nair joined as caretaker")).toBeVisible();
   await expect(rahul.getByText(/Kamala Devi \(email link\) marked Amlodipine 5 mg/)).toBeVisible();
 

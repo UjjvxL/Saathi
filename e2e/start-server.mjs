@@ -29,6 +29,10 @@ const server = spawn("npx", ["next", "start", "-p", port], {
     CRON_SECRET: "e2e-cron-secret",
     APP_URL: `http://localhost:${port}`,
     EMAIL_OUTBOX_DIR: outbox,
+    // Lets tests run the reminder engine at a chosen time (see the cron route). Test servers only.
+    E2E_ALLOW_CLOCK_OVERRIDE: "1",
+    // Every test signs up from 127.0.0.1, so loosen the per-address limits.
+    RATE_LIMIT_SCALE: "20",
     // Explicitly empty, so values from .env.local never leak into the test run.
     SMTP_HOST: "",
     SMTP_USER: "",

@@ -18,9 +18,20 @@ async function handle(request: Request): Promise<Response> {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const startedAt = new Date();
+  const startedAt = clockFor(request);
   const summary = await runReminders(startedAt);
   return Response.json({ ok: true, ranAt: startedAt.toISOString(), ...summary });
+}
+
+/**
+ * End-to-end tests replay the escalation timeline with "?now=<ISO time>". This only works when the
+ * server was started with E2E_ALLOW_CLOCK_OVERRIDE=1 (e2e/start-server.mjs does); never set it in production.
+ */
+function clockFor(request: Request): Date {
+  if (process.env.E2E_ALLOW_CLOCK_OVERRIDE !== "1") return new Date();
+  const override = new URL(request.url).searchParams.get("now");
+  const parsed = override ? new Date(override) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
 }
 
 export const GET = handle;

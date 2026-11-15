@@ -9,10 +9,20 @@ export interface RateLimitResult {
 }
 
 /**
+ * Test servers make many accounts from one address, so e2e/start-server.mjs raises every limit with
+ * RATE_LIMIT_SCALE. It can only loosen limits, and production leaves it unset.
+ */
+function scaled(limit: number): number {
+  const scale = Number(process.env.RATE_LIMIT_SCALE);
+  return Number.isFinite(scale) && scale > 1 ? Math.round(limit * scale) : limit;
+}
+
+/**
  * Fixed-window rate limiter stored in MongoDB, so it works across multiple server instances
  * (e.g. several Cloud Run containers). Expired windows are removed by a TTL index.
  */
-export async function rateLimit(key: string, limit: number, windowSeconds: number): Promise<RateLimitResult> {
+export async function rateLimit(key: string, baseLimit: number, windowSeconds: number): Promise<RateLimitResult> {
+  const limit = scaled(baseLimit);
   await connectDB();
   const now = new Date();
   const current = await RateLimit.findOneAndUpdate(

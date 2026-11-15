@@ -18,6 +18,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  async redirects() {
+    // The old History page became the Timeline (every event) and Insights (adherence) pages.
+    return [{ source: "/p/:profileId/history", destination: "/p/:profileId/timeline", permanent: false }];
+  },
   turbopack: {
     rules: {
       "*.css": {

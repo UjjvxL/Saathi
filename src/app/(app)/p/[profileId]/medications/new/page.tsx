@@ -5,9 +5,11 @@ import { addScannedMedications, createMedication } from "@/app/actions/medicatio
 import { MedicationForm } from "@/components/medication-form";
 import { ScanPrescription } from "@/components/scan-prescription";
 import { Card, CardHeader } from "@/components/ui/card";
-import { LoadingCards, PageHeader } from "@/components/ui/feedback";
+import { LoadingCards, Notice, PageHeader } from "@/components/ui/feedback";
 import { isAiConfigured } from "@/lib/ai/gemini";
 import { requireMemberContext } from "@/lib/auth/dal";
+import { getMembers } from "@/lib/data";
+import { can } from "@/lib/permissions";
 import { todayInZone } from "@/lib/schedule";
 
 export const metadata: Metadata = { title: "Add medicine" };
@@ -25,8 +27,12 @@ export default function NewMedicationPage({ params }: PageProps<"/p/[profileId]/
 
 async function NewMedicationView({ params }: { params: Promise<{ profileId: string }> }) {
   const { profileId } = await params;
-  const { profile } = await requireMemberContext(profileId);
+  const { profile, membership } = await requireMemberContext(profileId);
+  if (!can(membership, "manageMedications")) {
+    return <Notice tone="info">Only caretakers and admins can add medicines. Ask an admin if you need to.</Notice>;
+  }
   const today = todayInZone(profile.timezone);
+  const members = await getMembers(profile.id);
 
   return (
     <div className="space-y-6">
@@ -62,7 +68,10 @@ async function NewMedicationView({ params }: { params: Promise<{ profileId: stri
             stock: "",
             unitsPerDose: "1",
             refillThreshold: "",
+            assigneeId: "",
           }}
+          members={members}
+          canAssign={can(membership, "assignResponsibilities")}
         />
       </Card>
     </div>

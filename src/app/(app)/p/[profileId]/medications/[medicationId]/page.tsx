@@ -6,9 +6,10 @@ import { deleteMedication, updateMedication } from "@/app/actions/medications";
 import { MedicationForm } from "@/components/medication-form";
 import { ActionButton } from "@/components/ui/action-button";
 import { Card, CardHeader } from "@/components/ui/card";
-import { LoadingCards, PageHeader } from "@/components/ui/feedback";
+import { LoadingCards, Notice, PageHeader } from "@/components/ui/feedback";
 import { requireMemberContext } from "@/lib/auth/dal";
-import { getMedication } from "@/lib/data";
+import { getMedication, getMembers } from "@/lib/data";
+import { can } from "@/lib/permissions";
 
 export const metadata: Metadata = { title: "Edit medicine" };
 
@@ -22,9 +23,12 @@ export default function EditMedicationPage({ params }: PageProps<"/p/[profileId]
 
 async function EditMedicationView({ params }: { params: Promise<{ profileId: string; medicationId: string }> }) {
   const { profileId, medicationId } = await params;
-  const { profile } = await requireMemberContext(profileId);
-  const med = await getMedication(profile.id, medicationId);
+  const { profile, membership } = await requireMemberContext(profileId);
+  const [med, members] = await Promise.all([getMedication(profile.id, medicationId), getMembers(profile.id)]);
   if (!med) notFound();
+  if (!can(membership, "manageMedications")) {
+    return <Notice tone="info">Only caretakers and admins can change medicine schedules.</Notice>;
+  }
 
   return (
     <>
@@ -48,7 +52,10 @@ async function EditMedicationView({ params }: { params: Promise<{ profileId: str
               stock: med.stock === null ? "" : String(med.stock),
               unitsPerDose: String(med.unitsPerDose),
               refillThreshold: med.refillThreshold === null ? "" : String(med.refillThreshold),
+              assigneeId: med.assigneeId ?? "",
             }}
+            members={members}
+            canAssign={can(membership, "assignResponsibilities")}
           />
         </Card>
         <Card className="border-red-200">

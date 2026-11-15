@@ -7,6 +7,8 @@ import { z } from "zod";
 import { logActivity } from "@/lib/activity";
 import { authorizeMember } from "@/lib/auth/guard";
 import { DoseLog, Medication } from "@/lib/models";
+import { can } from "@/lib/permissions";
+import { checkAssignee, logAssignment } from "@/lib/responsibilities";
 import { describeSchedule, shiftDate, todayInZone } from "@/lib/schedule";
 import {
   fieldErrors,
@@ -30,6 +32,7 @@ const MED_FIELDS = [
   "stock",
   "unitsPerDose",
   "refillThreshold",
+  "assigneeId",
 ] as const;
 
 function parseMedicationForm(formData: FormData) {
@@ -53,11 +56,16 @@ function scheduleSignature(med: Pick<MedicationInput, "times" | "frequency" | "d
 
 export async function createMedication(profileId: string, _prev: FormState, formData: FormData): Promise<FormState> {
   return guarded(async () => {
-    const context = await authorizeMember(profileId);
+    const context = await authorizeMember(profileId, { capability: "manageMedications" });
     const { raw, result } = parseMedicationForm(formData);
     if (!result.success) return { errors: fieldErrors(result.error), values: raw };
+    const assigned = await checkAssignee(profileId, result.data.assigneeId);
+    if (!assigned.ok) return { errors: { assigneeId: [assigned.message] }, values: raw };
+    if (assigned.assignee && !can(context.membership, "assignResponsibilities")) {
+      return { errors: { assigneeId: ["Only caretakers and admins can assign responsibilities."] }, values: raw };
+    }
 
-    await Medication.create({
+    const med = await Medication.create({
       ...result.data,
       profileId,
       scheduleChangedAt: new Date(),
@@ -70,6 +78,15 @@ export async function createMedication(profileId: string, _prev: FormState, form
       actorName: context.user.name,
       kind: "medication",
       message: `${context.user.name} added ${label(result.data)} (${describeSchedule(result.data)})`,
+      status: "active",
+      refId: `medication:${med._id.toString()}`,
+    });
+    await logAssignment({
+      profileId,
+      actor: context.user,
+      what: label(result.data),
+      refId: `medication:${med._id.toString()}`,
+      assignee: assigned.assignee,
     });
     redirect(`/p/${profileId}/medications`);
   });
@@ -82,13 +99,19 @@ export async function updateMedication(
   formData: FormData,
 ): Promise<FormState> {
   return guarded(async () => {
-    const context = await authorizeMember(profileId);
+    const context = await authorizeMember(profileId, { capability: "manageMedications" });
     if (!mongoose.isValidObjectId(medicationId)) return { message: "This medicine no longer exists." };
     const existing = await Medication.findOne({ _id: medicationId, profileId }).lean();
     if (!existing) return { message: "This medicine no longer exists." };
 
     const { raw, result } = parseMedicationForm(formData);
     if (!result.success) return { errors: fieldErrors(result.error), values: raw };
+    const previousAssignee = existing.assigneeId ? existing.assigneeId.toString() : null;
+    const assigned = await checkAssignee(profileId, result.data.assigneeId);
+    if (!assigned.ok) return { errors: { assigneeId: [assigned.message] }, values: raw };
+    if ((assigned.assignee?.id ?? null) !== previousAssignee && !can(context.membership, "assignResponsibilities")) {
+      return { errors: { assigneeId: ["Only caretakers and admins can assign responsibilities."] }, values: raw };
+    }
 
     const scheduleChanged =
       scheduleSignature({
@@ -114,6 +137,16 @@ export async function updateMedication(
       actorName: context.user.name,
       kind: "medication",
       message: `${context.user.name} updated ${label(result.data)}${scheduleChanged ? ` (now ${describeSchedule(result.data)})` : ""}`,
+      status: existing.active === false ? "paused" : "active",
+      refId: `medication:${medicationId}`,
+    });
+    await logAssignment({
+      profileId,
+      actor: context.user,
+      what: label(result.data),
+      refId: `medication:${medicationId}`,
+      assignee: assigned.assignee,
+      previousId: previousAssignee,
     });
     redirect(`/p/${profileId}/medications`);
   });
@@ -127,7 +160,7 @@ export async function setMedicationActive(
   _formData: FormData,
 ): Promise<FormState> {
   return guarded(async () => {
-    const context = await authorizeMember(profileId);
+    const context = await authorizeMember(profileId, { capability: "manageMedications" });
     if (!mongoose.isValidObjectId(medicationId)) return { message: "This medicine no longer exists." };
     const med = await Medication.findOne({ _id: medicationId, profileId }).lean();
     if (!med) return { message: "This medicine no longer exists." };
@@ -155,7 +188,7 @@ export async function setMedicationActive(
 
 export async function deleteMedication(profileId: string, medicationId: string, _prev: FormState, _formData: FormData): Promise<FormState> {
   return guarded(async () => {
-    const context = await authorizeMember(profileId);
+    const context = await authorizeMember(profileId, { capability: "manageMedications" });
     if (!mongoose.isValidObjectId(medicationId)) return { message: "This medicine no longer exists." };
     const med = await Medication.findOneAndDelete({ _id: medicationId, profileId }).lean();
     if (med) {
@@ -178,7 +211,7 @@ const refillSchema = z.object({
 
 export async function addStock(profileId: string, medicationId: string, _prev: FormState, formData: FormData): Promise<FormState> {
   return guarded(async () => {
-    const context = await authorizeMember(profileId);
+    const context = await authorizeMember(profileId, { capability: "manageMedications" });
     const parsed = refillSchema.safeParse(readForm(formData, ["amount"] as const));
     if (!parsed.success) return { errors: fieldErrors(parsed.error) };
     if (!mongoose.isValidObjectId(medicationId)) return { message: "This medicine no longer exists." };
@@ -204,7 +237,7 @@ const scannedPayloadSchema = z.array(scannedMedicineSchema).min(1, "Select at le
 /** Saves medicines suggested by the AI prescription reader, after a person has reviewed them. */
 export async function addScannedMedications(profileId: string, _prev: FormState, formData: FormData): Promise<FormState> {
   return guarded(async () => {
-    const context = await authorizeMember(profileId);
+    const context = await authorizeMember(profileId, { capability: "manageMedications" });
     let payload: unknown;
     try {
       payload = JSON.parse(String(formData.get("payload") ?? "[]"));

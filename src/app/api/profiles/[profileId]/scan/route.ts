@@ -2,6 +2,7 @@
 // and a person reviews them before anything is saved.
 import { AiUserError, isAiConfigured, readPrescription } from "@/lib/ai/gemini";
 import { findMemberContext } from "@/lib/auth/dal";
+import { can, FORBIDDEN_MESSAGES } from "@/lib/permissions";
 import { rateLimit } from "@/lib/rate-limit";
 
 // Reading a photo can take a few seconds; allow up to a minute on serverless hosts like Vercel.
@@ -15,6 +16,9 @@ export async function POST(request: Request, context: RouteContext<"/api/profile
   const { profileId } = await context.params;
   const member = await findMemberContext(profileId);
   if (!member) return Response.json({ error: "Please sign in to a care circle first." }, { status: 403 });
+  if (!can(member.membership, "manageMedications")) {
+    return Response.json({ error: FORBIDDEN_MESSAGES.manageMedications }, { status: 403 });
+  }
   if (!isAiConfigured()) {
     return Response.json(
       { error: "AI scanning isn’t set up yet. Add GEMINI_API_KEY to the server environment." },

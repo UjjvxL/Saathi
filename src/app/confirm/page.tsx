@@ -58,7 +58,7 @@ async function ConfirmView({ searchParams }: { searchParams: Promise<Record<stri
     );
   }
 
-  const open = slot.doses.filter((dose) => dose.status !== "taken" && dose.status !== "skipped");
+  const open = slot.doses.filter((dose) => !["taken", "skipped", "missed"].includes(dose.status));
 
   return (
     <div className={cardClass}>
@@ -87,6 +87,10 @@ async function ConfirmView({ searchParams }: { searchParams: Promise<Record<stri
             ) : dose.status === "skipped" ? (
               <Badge tone="neutral" dot>
                 Skipped
+              </Badge>
+            ) : dose.status === "missed" ? (
+              <Badge tone="error" dot>
+                Not taken
               </Badge>
             ) : null}
           </li>

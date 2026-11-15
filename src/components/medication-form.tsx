@@ -6,6 +6,7 @@ import { MED_FORMS, WEEKDAYS, type Frequency } from "@/lib/constants";
 import { formatTime12h } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { FormState } from "@/lib/validation";
+import { AssigneeSelect, type AssignableMember } from "./assignee-select";
 import { Button, ButtonLink } from "./ui/button";
 import { choiceCardStyles, FieldError, SelectField, TextField } from "./ui/field";
 import { FormMessage, SubmitButton } from "./ui/form-bits";
@@ -23,6 +24,8 @@ export interface MedicationFormValues {
   stock: string;
   unitsPerDose: string;
   refillThreshold: string;
+  /** userId of the member responsible, or "". */
+  assigneeId: string;
 }
 
 type TextKey = Exclude<keyof MedicationFormValues, "times" | "daysOfWeek" | "frequency">;
@@ -56,11 +59,16 @@ export function MedicationForm({
   initial,
   submitLabel,
   cancelHref,
+  members = [],
+  canAssign = false,
 }: {
   action: FormAction;
   initial: MedicationFormValues;
   submitLabel: string;
   cancelHref: string;
+  /** Members who can be made responsible. */
+  members?: AssignableMember[];
+  canAssign?: boolean;
 }) {
   const baseId = useId();
   const [state, formAction, pending] = useActionState(action, {});
@@ -267,6 +275,19 @@ export function MedicationForm({
             error={state.errors?.refillThreshold}
           />
         </div>
+      </Section>
+
+      <Section
+        title="Responsibility"
+        description="Who makes sure this medicine is taken. They’re alerted first if a dose isn’t confirmed."
+      >
+        <AssigneeSelect
+          label="Responsible person"
+          members={members}
+          defaultValue={value("assigneeId")}
+          error={state.errors?.assigneeId}
+          canAssign={canAssign}
+        />
       </Section>
 
       <div className="flex flex-wrap gap-3 border-t border-stone-100 pt-7">

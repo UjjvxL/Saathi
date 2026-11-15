@@ -2,6 +2,7 @@
 import "server-only";
 import mongoose from "mongoose";
 import { logActivity } from "./activity";
+import { doseRef, reopenAlertForSlot, syncAlertForSlot } from "./alerts";
 import type { DoseDecision } from "./constants";
 import { connectDB } from "./db";
 import { toMedicationDTO, toSchedule } from "./dto";
@@ -83,13 +84,18 @@ export async function recordDose(input: {
   );
 
   const label = [med.name, med.dosage].filter(Boolean).join(" ");
+  const outcome = status === "missed" ? "not taken" : status;
   await logActivity({
     profileId: profile.id,
     actorId: actor.id,
     actorName: actor.name,
     kind: "dose",
-    message: `${actor.name} marked ${label} (${formatTime12h(localTime)}) as ${status}`,
+    message: `${actor.name} marked ${label} (${formatTime12h(localTime)}) as ${outcome}`,
+    status,
+    refId: doseRef(scheduledFor),
   });
+  // If this dose was escalated, the alert closes once every medicine in its time slot has an outcome.
+  await syncAlertForSlot(profile, scheduledFor, actor);
   return { ok: true };
 }
 
@@ -104,7 +110,8 @@ export async function undoDose(input: {
   await connectDB();
 
   const log = await DoseLog.findOne({ profileId: profile.id, medicationId, scheduledFor }).lean();
-  if (!log) return { ok: true };
+  // "Unconfirmed" was recorded by Saathi, not a person, so there is nothing to undo.
+  if (!log || log.status === "unconfirmed") return { ok: true };
   if (log.status === "taken" && (log.stockDeducted ?? 0) > 0) {
     await Medication.updateOne({ _id: medicationId, stock: { $ne: null } }, { $inc: { stock: log.stockDeducted } });
   }
@@ -117,6 +124,9 @@ export async function undoDose(input: {
     actorName: actor.name,
     kind: "dose",
     message: `${actor.name} undid “${log.status}” for ${med?.name ?? "a medicine"} (${formatTime12h(log.localTime)})`,
+    status: "pending",
+    refId: doseRef(scheduledFor),
   });
+  await reopenAlertForSlot(profile, scheduledFor, actor);
   return { ok: true };
 }
