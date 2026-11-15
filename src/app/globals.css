@@ -39,6 +39,11 @@
     font-size: 131.25%;
   }
 
+  /* Extra large (chosen in Elderly mode), 24px base. */
+  html[data-text-size="xlarge"] {
+    font-size: 150%;
+  }
+
   body {
     background-color: var(--color-stone-50);
     color: var(--color-stone-900);

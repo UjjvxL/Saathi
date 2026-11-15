@@ -318,7 +318,12 @@ function MedicineTable({ report }: { report: InsightsReport }) {
   return (
     <Card>
       <CardHeader title="By medicine" icon={<Pill />} as="h3" description="Adherence this week and over the last 4 weeks." />
-      <div className="relative -mx-5 overflow-x-auto px-5 sm:-mx-6 sm:px-6">
+      <div
+        role="region"
+        aria-label="Adherence by medicine"
+        tabIndex={0}
+        className="relative -mx-5 overflow-x-auto rounded-lg px-5 sm:-mx-6 sm:px-6"
+      >
         <table className="w-full min-w-lg text-left text-[0.95rem]">
           <thead>
             <tr className="border-b border-stone-200 text-sm text-stone-500">

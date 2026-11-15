@@ -37,10 +37,10 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-// Applies the saved "bigger text" preference before first paint (no flash, no hydration mismatch).
-const textSizeScript = `(function(){try{if(localStorage.getItem(${JSON.stringify(
+// Applies the saved text size ("large" or "xlarge") before first paint (no flash, no hydration mismatch).
+const textSizeScript = `(function(){try{var s=localStorage.getItem(${JSON.stringify(
   TEXT_SIZE_STORAGE_KEY,
-)})==="large")document.documentElement.setAttribute("data-text-size","large")}catch(e){}})()`;
+)});if(s==="large"||s==="xlarge")document.documentElement.setAttribute("data-text-size",s)}catch(e){}})()`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (

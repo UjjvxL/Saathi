@@ -17,7 +17,13 @@ const CELL: Record<DoseStatus, { icon: ComponentType<SVGProps<SVGSVGElement>>; c
 export function DoseHistoryGrid({ rows, days }: { rows: DoseHistoryRow[]; days: DayTrend[] }) {
   return (
     // `relative` keeps the visually hidden labels inside this scroll area (otherwise they widen the page).
-    <div className="relative -mx-5 overflow-x-auto px-5 sm:-mx-6 sm:px-6">
+    // On phones the table scrolls sideways, so the area is focusable for keyboard users.
+    <div
+      role="region"
+      aria-label="Dose history for the week"
+      tabIndex={0}
+      className="relative -mx-5 overflow-x-auto rounded-lg px-5 sm:-mx-6 sm:px-6"
+    >
       <table className="w-full min-w-xl text-left">
         <caption className="sr-only">Every scheduled dose this week and what was recorded</caption>
         <thead>
