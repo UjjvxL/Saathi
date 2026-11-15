@@ -6,10 +6,12 @@
 //     alerts the member responsible for the medicine, or every caretaker and family member,
 //  4. if nobody acknowledges that alert within 15 minutes, alerts the rest of the circle (once),
 //  5. reminds everyone about doctor appointments (about 24 hours and 2 hours before),
-//  6. warns when a medicine is running low.
+//  6. warns when a medicine is running low,
+//  7. emails the circle a summary of the previous week, on Monday morning.
 // Each step is claimed before it is sent (ReminderLog keys and the Alert unique index), so overlapping
 // runs never double-send and nothing loops. Each step is also written to the care timeline.
 import "server-only";
+import { DateTime } from "luxon";
 import { logActivity } from "./activity";
 import { ackAlertUrl, doseRef } from "./alerts";
 import { signPurposeToken } from "./auth/jwt";
@@ -18,7 +20,9 @@ import { connectDB, isDuplicateKeyError } from "./db";
 import { toAppointmentDTO, toMedicationDTO, toProfileDTO, toSchedule } from "./dto";
 import { maskEmail, sendEmail, sendToAll } from "./email/mailer";
 import * as templates from "./email/templates";
+import { weeklySummaryEmail } from "./email/weekly-summary";
 import { env } from "./env";
+import { buildWeeklySummary } from "./insights";
 import { Alert, Appointment, DoseLog, Medication, Membership, Profile, ReminderLog, User } from "./models";
 import {
   doseKey,
@@ -46,9 +50,14 @@ export interface ReminderSummary {
   widened: number;
   appointments: number;
   lowStock: number;
+  /** Weekly care summaries sent. */
+  weekly: number;
   emails: number;
   errors: number;
 }
+
+/** Local hour on Monday after which last week's summary goes out. */
+const WEEKLY_SUMMARY_HOUR = 7;
 
 interface Person {
   /** null for the elder's own email address on the profile (they may not have an account). */
@@ -97,6 +106,7 @@ export async function runReminders(now: Date = new Date(), options: { profileId?
     widened: 0,
     appointments: 0,
     lowStock: 0,
+    weekly: 0,
     emails: 0,
     errors: 0,
   };
@@ -125,6 +135,7 @@ async function processProfile(profile: ProfileDTO, now: Date, summary: ReminderS
   await processOpenAlerts(profile, circle, now, summary);
   await processAppointments(profile, circle, now, summary);
   await processLowStock(profile, meds, circle, today, summary);
+  await processWeeklySummary(profile, circle, now, summary);
 }
 
 /** Everyone in the circle who wants email, by role (plus the elder's own email on the profile). */
@@ -580,6 +591,40 @@ async function processLowStock(
       summary.lowStock++;
       summary.emails += sent;
     }
+  }
+}
+
+/** Once a week (Monday morning, profile time), a summary of the previous week for the whole circle. */
+async function processWeeklySummary(profile: ProfileDTO, circle: Circle, now: Date, summary: ReminderSummary): Promise<void> {
+  const local = DateTime.fromJSDate(now).setZone(profile.timezone);
+  if (local.weekday !== 1 || local.hour < WEEKLY_SUMMARY_HOUR) return;
+  // Same week id as buildWeeklySummary(): the Monday of the week that just ended.
+  const key = `weekly-summary:${profile.id}:${local.startOf("week").minus({ weeks: 1 }).toFormat("kkkk-'W'WW")}`;
+  if (await ReminderLog.exists({ key })) return; // checked first, so the report isn't rebuilt on every run
+
+  const to = unique([...circle.family, ...circle.caretakers, ...circle.elder]);
+  const weekly = to.length ? await buildWeeklySummary(profile, now) : null;
+  if (!weekly?.hasData) {
+    await claim(key, profile.id, "weekly-summary"); // nothing to send this week
+    return;
+  }
+  const sent = await sendOnce(
+    key,
+    profile.id,
+    "weekly-summary",
+    to.map((person) => person.email),
+    weeklySummaryEmail(weekly, `${env.appUrl()}/p/${profile.id}/insights`),
+  );
+  if (sent !== null) {
+    summary.weekly++;
+    summary.emails += sent;
+    await logActivity({
+      profileId: profile.id,
+      actorName: SAATHI,
+      kind: "reminder",
+      message: `Weekly care summary for ${weekly.periodLabel} sent to ${namesOf(to)}.`,
+      involvedUserIds: userIds(to),
+    });
   }
 }
 

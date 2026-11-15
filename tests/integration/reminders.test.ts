@@ -269,6 +269,33 @@ describe("reminder engine", () => {
     expect(emailsTo("ny@example.com")[0].subject).toBe("Medicine reminder for Kamala Devi · 8:00 AM");
   });
 
+  it("emails last week's summary to the circle once, on Monday morning", async () => {
+    const { profileId, rahul, priya } = await circle();
+    const med = await createMedication(profileId, { name: "Amlodipine", times: ["08:00"], startDate: "2026-03-02", scheduleChangedAt: SINCE });
+    // Last week (Mon 9 – Sun 15 Mar): three doses taken, the other four never confirmed.
+    for (const date of ["2026-03-09", "2026-03-10", "2026-03-11"]) {
+      await DoseLog.create({
+        profileId,
+        medicationId: med._id,
+        scheduledFor: zonedToUtc(date, "08:00", ZONE),
+        localDate: date,
+        localTime: "08:00",
+        status: "taken",
+      });
+    }
+    // Sunday 15 Mar 10:00 in India: too early. Monday 16 Mar 06:30: still too early. 08:00: sent.
+    expect((await runReminders(new Date("2026-03-15T04:30:00.000Z"))).weekly).toBe(0);
+    expect((await runReminders(new Date("2026-03-16T01:00:00.000Z"))).weekly).toBe(0);
+    testState.outbox.length = 0;
+    expect((await runReminders(new Date("2026-03-16T02:30:00.000Z"))).weekly).toBe(1);
+    const weekly = withSubject("Kamala Devi’s weekly care summary");
+    expect(weekly.map((email) => email.to).sort()).toEqual(["elder@example.com", priya.email, rahul.email].sort());
+    expect(weekly[0].subject).not.toContain("Amlodipine");
+    expect(weekly[0].text).toContain("Taken: 3");
+    expect(weekly[0].text).toContain("Unconfirmed (nobody recorded it in time): 4");
+    expect((await runReminders(new Date("2026-03-16T05:30:00.000Z"))).weekly).toBe(0); // once per week
+  });
+
   it("retries a reminder on the next run when every email failed", async () => {
     const { profileId } = await circle();
     await createMedication(profileId, { name: "Amlodipine", times: ["09:03"], startDate: "2026-03-10", scheduleChangedAt: SINCE });

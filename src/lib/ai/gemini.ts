@@ -14,7 +14,8 @@ export function isAiConfigured(): boolean {
   return Boolean(env.geminiApiKey());
 }
 
-function getClient(): GoogleGenAI {
+/** The shared Gemini client (also used by the weekly insights summary). */
+export function getClient(): GoogleGenAI {
   const apiKey = env.geminiApiKey();
   if (!apiKey) throw new AiUserError("AI scanning isn’t set up yet. Add GEMINI_API_KEY to the server environment.");
   // Never leave someone waiting on "Reading prescription…" for more than a minute.
@@ -33,7 +34,7 @@ export function candidateModels(configured: string = env.geminiModel()): string[
 }
 
 /** Errors where another model may well succeed straight away (but not slow timeouts). */
-function shouldTryNextModel(error: unknown): boolean {
+export function shouldTryNextModel(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /NOT_FOUND|is not found|no longer available|not supported for generateContent|UNAVAILABLE|overloaded|RESOURCE_EXHAUSTED/i.test(
     message,
