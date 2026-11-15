@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.env*
+!.env.example
+npm-debug.log*
+coverage
+*.md
+Dockerfile
+.dockerignore
+tests
+e2e
+playwright.config.ts
+vitest.config.mts
+.github

@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# keep the template in git
+!.env.example
+
+# test output
+/e2e/.outbox
+/playwright-report
+/test-results
+/coverage
