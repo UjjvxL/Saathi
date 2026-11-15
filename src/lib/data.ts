@@ -300,7 +300,7 @@ export async function getOutstandingAlerts(profileId: string, now: Date = new Da
 
 export async function getActivity(profileId: string, limit = 40): Promise<ActivityDTO[]> {
   await connectDB();
-  const docs = await Activity.find({ profileId }).sort({ createdAt: -1 }).limit(limit).lean();
+  const docs = await Activity.find({ profileId }).sort({ createdAt: -1, _id: -1 }).limit(limit).lean();
   return docs.map(toActivityDTO);
 }
 
@@ -489,7 +489,7 @@ export async function getTimeline(profile: ProfileDTO, filters: TimelineFilters,
 
   const [docs, alerts] = await Promise.all([
     Activity.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1, _id: -1 })
       .limit(limit + 1)
       .lean(),
     getAlerts(profile.id, { since, until, limit: 60 }),
