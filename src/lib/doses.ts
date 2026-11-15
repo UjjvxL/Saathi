@@ -2,6 +2,7 @@
 import "server-only";
 import mongoose from "mongoose";
 import { logActivity } from "./activity";
+import type { DoseDecision } from "./constants";
 import { connectDB } from "./db";
 import { toMedicationDTO, toSchedule } from "./dto";
 import { DoseLog, Medication } from "./models";
@@ -23,7 +24,7 @@ export async function recordDose(input: {
   profile: ProfileDTO;
   medicationId: string;
   scheduledFor: Date;
-  status: "taken" | "skipped";
+  status: DoseDecision;
   actor: Actor;
 }): Promise<Outcome> {
   const { profile, medicationId, scheduledFor, status, actor } = input;
@@ -35,6 +36,9 @@ export async function recordDose(input: {
   const med = toMedicationDTO(medDoc);
   const existing = await DoseLog.findOne({ medicationId, scheduledFor }).lean();
   const now = new Date();
+  if (status === "missed" && scheduledFor.getTime() > now.getTime()) {
+    return { ok: false, message: "A dose can only be marked as missed after its time." };
+  }
 
   if (!existing) {
     // Only real, scheduled doses can be logged; this rejects forged or tampered requests.

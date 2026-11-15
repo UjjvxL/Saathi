@@ -5,13 +5,14 @@ import { DOSE_LOG_STATUSES, type DoseLogStatus } from "./constants";
 import { connectDB } from "./db";
 import {
   toActivityDTO,
+  toAlertDTO,
   toAppointmentDTO,
   toMedicationDTO,
   toMembershipDTO,
   toProfileDTO,
   toSchedule,
 } from "./dto";
-import { Activity, Appointment, DoseLog, Medication, Membership, Profile, User } from "./models";
+import { Activity, Alert, Appointment, DoseLog, Medication, Membership, Profile, User } from "./models";
 import {
   doseKey,
   doseStatus,
@@ -23,13 +24,16 @@ import {
 } from "./schedule";
 import type {
   ActivityDTO,
+  AlertDTO,
   AppointmentDTO,
+  DoseAlertInfo,
   DoseItem,
   MedicationDTO,
   MemberDTO,
   MembershipDTO,
   ProfileDTO,
 } from "./types";
+import type { AlertStatus } from "./constants";
 
 function asLogStatus(value: unknown): DoseLogStatus | null {
   return DOSE_LOG_STATUSES.includes(value as DoseLogStatus) ? (value as DoseLogStatus) : null;
@@ -66,8 +70,23 @@ export async function getDoseItems(
   const meds = medications ?? (await getMedications(profile.id));
   const medById = new Map(meds.map((med) => [med.id, med]));
   const schedules = meds.filter((med) => med.active).map(toSchedule);
-  const logs = await DoseLog.find({ profileId: profile.id, localDate: { $in: localDates } }).lean();
+  const [logs, alerts] = await Promise.all([
+    DoseLog.find({ profileId: profile.id, localDate: { $in: localDates } }).lean(),
+    Alert.find({ profileId: profile.id, localDate: { $in: localDates } })
+      .select("slot medicationIds status acknowledgedByName acknowledgedAt")
+      .lean(),
+  ]);
   const logByKey = new Map(logs.map((log) => [doseKey(log.medicationId.toString(), log.scheduledFor), log]));
+  const alertByKey = new Map<string, DoseAlertInfo>();
+  for (const alert of alerts) {
+    const info: DoseAlertInfo = {
+      id: alert._id.toString(),
+      status: alert.status as AlertStatus,
+      acknowledgedByName: alert.acknowledgedByName ?? null,
+      acknowledgedAt: alert.acknowledgedAt ? alert.acknowledgedAt.toISOString() : null,
+    };
+    for (const medicationId of alert.medicationIds) alertByKey.set(doseKey(medicationId.toString(), alert.slot), info);
+  }
 
   const items: DoseItem[] = [];
   const seen = new Set<string>();
@@ -78,7 +97,7 @@ export async function getDoseItems(
     if (!med || seen.has(key)) return;
     seen.add(key);
     const log = logByKey.get(key);
-    const status = doseStatus(scheduledFor, asLogStatus(log?.status), now, profile.missedAfterMinutes);
+    const status = doseStatus(scheduledFor, asLogStatus(log?.status), now, profile.escalateAfterMinutes);
     const hoursAhead = (scheduledFor.getTime() - now.getTime()) / 3_600_000;
     items.push({
       key,
@@ -94,6 +113,9 @@ export async function getDoseItems(
       canMark: med.active && hoursAhead <= 2 && hoursAhead >= -24 * 7,
       takenAt: log?.takenAt ? log.takenAt.toISOString() : null,
       loggedByName: log?.loggedByName ?? null,
+      loggedAt: log?.updatedAt ? log.updatedAt.toISOString() : null,
+      assigneeId: med.assigneeId,
+      alert: alertByKey.get(key) ?? null,
     });
   };
 
@@ -111,7 +133,8 @@ export interface TodayOverview {
   today: string;
   doses: DoseItem[];
   summary: AdherenceSummary;
-  dueCount: number;
+  /** Doses due now and waiting for confirmation. */
+  pendingCount: number;
   nextAppointments: AppointmentDTO[];
   lowStock: MedicationDTO[];
 }
@@ -130,7 +153,7 @@ export async function getTodayOverview(profile: ProfileDTO, now: Date = new Date
     today,
     doses,
     summary: summarizeAdherence(doses.map((dose) => dose.status)),
-    dueCount: doses.filter((dose) => dose.status === "due").length,
+    pendingCount: doses.filter((dose) => dose.status === "pending").length,
     nextAppointments: appointments.map(toAppointmentDTO),
     lowStock: meds.filter(isLowStock),
   };
@@ -141,8 +164,10 @@ export interface DashboardEntry {
   membership: MembershipDTO;
   totalToday: number;
   takenToday: number;
-  dueNow: number;
-  missedToday: number;
+  /** Doses due now and waiting for confirmation. */
+  pendingNow: number;
+  /** Doses today that were missed or left unconfirmed. */
+  notTakenToday: number;
   nextAppointment: AppointmentDTO | null;
   lowStockCount: number;
 }
@@ -164,8 +189,8 @@ export async function getDashboard(userId: string, now: Date = new Date()): Prom
         membership: toMembershipDTO(membership),
         totalToday: overview.doses.length,
         takenToday: overview.summary.taken,
-        dueNow: overview.dueCount,
-        missedToday: overview.summary.missed,
+        pendingNow: overview.pendingCount,
+        notTakenToday: overview.summary.missed + overview.summary.unconfirmed,
         nextAppointment: overview.nextAppointments[0] ?? null,
         lowStockCount: overview.lowStock.length,
       };
@@ -224,8 +249,29 @@ export async function getHistory(profile: ProfileDTO, days: number, now: Date = 
         summary: summarizeAdherence(doses.map((dose) => dose.status)),
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
-    recentMisses: items.filter((item) => item.status === "missed").reverse().slice(0, 10),
+    recentMisses: items
+      .filter((item) => item.status === "missed" || item.status === "unconfirmed")
+      .reverse()
+      .slice(0, 10),
   };
+}
+
+/** Escalated time slots, newest first. */
+export async function getAlerts(
+  profileId: string,
+  options: { since?: Date; until?: Date; statuses?: AlertStatus[]; limit?: number } = {},
+): Promise<AlertDTO[]> {
+  await connectDB();
+  const filter: Record<string, unknown> = { profileId };
+  if (options.since || options.until) {
+    filter.slot = { ...(options.since ? { $gte: options.since } : {}), ...(options.until ? { $lt: options.until } : {}) };
+  }
+  if (options.statuses?.length) filter.status = { $in: options.statuses };
+  const docs = await Alert.find(filter)
+    .sort({ slot: -1 })
+    .limit(options.limit ?? 50)
+    .lean();
+  return docs.map(toAlertDTO);
 }
 
 export async function getActivity(profileId: string, limit = 40): Promise<ActivityDTO[]> {

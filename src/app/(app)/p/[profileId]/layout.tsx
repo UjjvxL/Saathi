@@ -1,6 +1,7 @@
-import { HeartPulse, Phone, ShieldAlert } from "lucide-react";
+import { Accessibility, HeartPulse, Phone, ShieldAlert } from "lucide-react";
 import { Suspense } from "react";
 import { ProfileNav } from "@/components/profile-nav";
+import { ButtonLink } from "@/components/ui/button";
 import { Avatar, Skeleton } from "@/components/ui/feedback";
 import { requireMemberContext } from "@/lib/auth/dal";
 import { ROLE_LABELS } from "@/lib/constants";
@@ -48,6 +49,9 @@ async function ProfileHeader({ params }: { params: Promise<{ profileId: string }
             <span className="font-mono font-medium tracking-wider text-stone-700">{profile.careId}</span>
           </p>
         </div>
+        <ButtonLink href={`/elder/${profile.id}`} variant="secondary" size="lg" className="w-full sm:w-auto">
+          <Accessibility aria-hidden="true" /> Elderly mode
+        </ButtonLink>
       </div>
 
       {profile.allergies.length || profile.conditions.length || profile.emergencyContactPhone ? (

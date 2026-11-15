@@ -34,6 +34,7 @@ function describe(summary: AdherenceSummary): string {
     `${summary.taken} taken`,
     summary.skipped ? `${summary.skipped} skipped` : null,
     summary.missed ? `${summary.missed} missed` : null,
+    summary.unconfirmed ? `${summary.unconfirmed} unconfirmed` : null,
   ]
     .filter(Boolean)
     .join(", ");
@@ -47,6 +48,9 @@ function StackedBar({ summary }: { summary: AdherenceSummary }) {
       {summary.taken ? <div className="rounded-full bg-emerald-500" style={{ width: pct(summary.taken) }} /> : null}
       {summary.skipped ? <div className="rounded-full bg-stone-300" style={{ width: pct(summary.skipped) }} /> : null}
       {summary.missed ? <div className="rounded-full bg-red-500" style={{ width: pct(summary.missed) }} /> : null}
+      {summary.unconfirmed ? (
+        <div className="rounded-full bg-orange-400" style={{ width: pct(summary.unconfirmed) }} />
+      ) : null}
     </div>
   );
 }
@@ -55,6 +59,7 @@ const LEGEND = [
   { label: "Taken", className: "bg-emerald-500" },
   { label: "Skipped", className: "bg-stone-300" },
   { label: "Missed", className: "bg-red-500" },
+  { label: "Unconfirmed", className: "bg-orange-400" },
 ];
 
 async function HistoryView({

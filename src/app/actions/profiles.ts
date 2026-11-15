@@ -295,7 +295,7 @@ export async function setEmailAlerts(profileId: string, enabled: boolean, _prev:
 export async function updateReminderSettings(profileId: string, _prev: FormState, formData: FormData): Promise<FormState> {
   return guarded(async () => {
     const context = await authorizeMember(profileId, { admin: true });
-    const raw = readForm(formData, ["missedAfterMinutes", "escalateAfterMinutes"] as const);
+    const raw = readForm(formData, ["followUpAfterMinutes", "escalateAfterMinutes"] as const);
     const parsed = reminderSettingsSchema.safeParse(raw);
     if (!parsed.success) return { errors: fieldErrors(parsed.error), values: raw };
 
@@ -305,7 +305,7 @@ export async function updateReminderSettings(profileId: string, _prev: FormState
       actorId: context.user.id,
       actorName: context.user.name,
       kind: "profile",
-      message: `${context.user.name} changed reminder timing (missed after ${parsed.data.missedAfterMinutes} min, family alert after ${parsed.data.escalateAfterMinutes} min)`,
+      message: `${context.user.name} changed reminder timing (follow-up after ${parsed.data.followUpAfterMinutes} min, caretaker alert after ${parsed.data.escalateAfterMinutes} min)`,
     });
     refresh();
     return { ok: true, message: "Reminder settings saved." };

@@ -139,29 +139,42 @@ describe("doseStatus", () => {
   const due = new Date("2024-01-01T02:30:00.000Z");
   const at = (minutes: number) => new Date(due.getTime() + minutes * 60_000);
 
-  it("is upcoming before the time, due during the grace period, then missed", () => {
+  it("is upcoming before the time, pending until the escalation time, then unconfirmed", () => {
     expect(doseStatus(due, null, at(-5), 30)).toBe("upcoming");
-    expect(doseStatus(due, null, at(0), 30)).toBe("due");
-    expect(doseStatus(due, null, at(30), 30)).toBe("due");
-    expect(doseStatus(due, null, at(31), 30)).toBe("missed");
+    expect(doseStatus(due, null, at(0), 30)).toBe("pending");
+    expect(doseStatus(due, null, at(29), 30)).toBe("pending");
+    expect(doseStatus(due, null, at(30), 30)).toBe("unconfirmed");
+  });
+
+  it("never turns an unrecorded dose into taken or missed", () => {
+    for (const minutes of [-60, 0, 15, 45, 600, 10_000]) {
+      expect(["upcoming", "pending", "unconfirmed"]).toContain(doseStatus(due, null, at(minutes), 30));
+    }
   });
 
   it("always prefers what was actually recorded", () => {
     expect(doseStatus(due, "taken", at(-60), 30)).toBe("taken");
     expect(doseStatus(due, "skipped", at(500), 30)).toBe("skipped");
+    expect(doseStatus(due, "missed", at(500), 30)).toBe("missed");
+    expect(doseStatus(due, "unconfirmed", at(500), 30)).toBe("unconfirmed");
   });
 });
 
 describe("summarizeAdherence", () => {
-  it("counts only decided doses and rounds the rate", () => {
-    expect(summarizeAdherence(["taken", "taken", "missed", "skipped", "upcoming", "due"])).toEqual({
+  it("counts taken, skipped, missed and unconfirmed doses, but not pending or upcoming ones", () => {
+    expect(
+      summarizeAdherence(["taken", "taken", "missed", "unconfirmed", "skipped", "upcoming", "pending"]),
+    ).toEqual({
       taken: 2,
       skipped: 1,
       missed: 1,
-      total: 4,
-      rate: 50,
+      unconfirmed: 1,
+      pending: 1,
+      total: 5,
+      rate: 40,
     });
     expect(summarizeAdherence(["taken", "taken", "missed"]).rate).toBe(67);
+    expect(summarizeAdherence(["taken", "unconfirmed"]).rate).toBe(50);
   });
 
   it("has no rate when nothing is decided yet", () => {

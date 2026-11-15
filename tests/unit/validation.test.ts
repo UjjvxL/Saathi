@@ -108,8 +108,9 @@ describe("joinSchema", () => {
 
 describe("reminderSettingsSchema", () => {
   it("requires the family alert to come after the nudge", () => {
-    expect(reminderSettingsSchema.safeParse({ missedAfterMinutes: "30", escalateAfterMinutes: "60" }).success).toBe(true);
-    expect(reminderSettingsSchema.safeParse({ missedAfterMinutes: "60", escalateAfterMinutes: "60" }).success).toBe(false);
+    expect(reminderSettingsSchema.safeParse({ followUpAfterMinutes: "15", escalateAfterMinutes: "30" }).success).toBe(true);
+    expect(reminderSettingsSchema.safeParse({ followUpAfterMinutes: "60", escalateAfterMinutes: "60" }).success).toBe(false);
+    expect(reminderSettingsSchema.safeParse({ followUpAfterMinutes: "5", escalateAfterMinutes: "30" }).success).toBe(false);
   });
 });
 

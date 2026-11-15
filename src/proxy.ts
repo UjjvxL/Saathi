@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { verifySession } from "@/lib/auth/jwt";
 import { SESSION_COOKIE } from "@/lib/constants";
 
-const PROTECTED = ["/dashboard", "/profiles", "/join", "/p"];
+const PROTECTED = ["/dashboard", "/profiles", "/join", "/p", "/elder"];
 const AUTH_PAGES = ["/login", "/signup"];
 
 function matches(pathname: string, base: string): boolean {

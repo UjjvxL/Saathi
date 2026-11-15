@@ -1,11 +1,15 @@
 import "server-only";
 import mongoose, { Schema } from "mongoose";
 import {
+  ACTIVITY_KINDS,
+  ALERT_STATUSES,
   APPOINTMENT_STATUSES,
   DEFAULT_ESCALATE_AFTER_MINUTES,
-  DEFAULT_MISSED_AFTER_MINUTES,
+  DEFAULT_FOLLOW_UP_MINUTES,
   DEFAULT_TIMEZONE,
   DOSE_LOG_STATUSES,
+  ESCALATE_RANGE,
+  FOLLOW_UP_RANGE,
   FREQUENCIES,
   MED_FORMS,
   ROLES,
@@ -58,8 +62,22 @@ const profileSchema = new Schema(
     /** bcrypt hash of the 6-digit passcode. The passcode itself is never stored. */
     passcodeHash: { type: String, required: true },
     passcodeUpdatedAt: { type: Date, required: true },
-    missedAfterMinutes: { type: Number, default: DEFAULT_MISSED_AFTER_MINUTES, min: 10, max: 240 },
-    escalateAfterMinutes: { type: Number, default: DEFAULT_ESCALATE_AFTER_MINUTES, min: 15, max: 480 },
+    /** The passcode stops working after this (null: INVITE_TTL_DAYS after passcodeUpdatedAt). */
+    passcodeExpiresAt: { type: Date, default: null },
+    /** Minutes after a dose is due before a follow-up reminder goes out. */
+    followUpAfterMinutes: {
+      type: Number,
+      default: DEFAULT_FOLLOW_UP_MINUTES,
+      min: FOLLOW_UP_RANGE.min,
+      max: FOLLOW_UP_RANGE.max,
+    },
+    /** Minutes after a dose is due before it counts as unconfirmed and the responsible people are alerted. */
+    escalateAfterMinutes: {
+      type: Number,
+      default: DEFAULT_ESCALATE_AFTER_MINUTES,
+      min: ESCALATE_RANGE.min,
+      max: ESCALATE_RANGE.max,
+    },
     createdBy: { type: ObjectId, ref: "User", required: true },
   },
   { timestamps: true },
@@ -105,6 +123,8 @@ const medicationSchema = new Schema(
     unitsPerDose: { type: Number, default: 1, min: 0 },
     refillThreshold: { type: Number, default: null, min: 0 },
     active: { type: Boolean, default: true },
+    /** The member responsible for making sure this medicine is taken (alerted first when a dose is unconfirmed). */
+    assigneeId: { type: ObjectId, ref: "User", default: null },
     /** When the schedule was created or last changed. Earlier doses are not expected. */
     scheduleChangedAt: { type: Date, required: true },
     createdBy: { type: ObjectId, ref: "User", default: null },
@@ -149,6 +169,10 @@ const appointmentSchema = new Schema(
     dateTime: { type: Date, required: true },
     notes: { type: String, default: "", trim: true, maxlength: 1000 },
     status: { type: String, enum: APPOINTMENT_STATUSES, default: "scheduled" },
+    /** The member responsible for this visit (e.g. who takes the elder there). */
+    assigneeId: { type: ObjectId, ref: "User", default: null },
+    statusChangedAt: { type: Date, default: null },
+    statusChangedByName: { type: String, default: null },
     createdBy: { type: ObjectId, ref: "User", default: null },
     updatedBy: { type: ObjectId, ref: "User", default: null },
   },
@@ -164,15 +188,60 @@ export const Appointment = defineModel("Appointment", appointmentSchema);
 const activitySchema = new Schema(
   {
     profileId: { type: ObjectId, ref: "Profile", required: true },
+    /** Who did it; null for Saathi's own automatic actions (reminders, escalations). */
     actorId: { type: ObjectId, ref: "User", default: null },
     actorName: { type: String, required: true },
-    kind: { type: String, required: true },
+    kind: { type: String, enum: ACTIVITY_KINDS, required: true },
     message: { type: String, required: true, maxlength: 300 },
+    /** The status of the dose, alert or task right after this event (e.g. "pending", "acknowledged"). */
+    status: { type: String, default: null },
+    /** The alert, medicine or appointment the event is about. */
+    refId: { type: String, default: null },
+    /** Everyone involved (who acted, was notified or was assigned), for the timeline's member filter. */
+    involvedUserIds: { type: [ObjectId], default: [] },
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );
 activitySchema.index({ profileId: 1, createdAt: -1 });
 export const Activity = defineModel("Activity", activitySchema);
+
+// ---------------------------------------------------------------------------
+// Alert: one escalated time slot (all medicines due at the same time), from the first reminder to
+// the moment someone confirmed what happened. The unique index makes escalation happen only once.
+// ---------------------------------------------------------------------------
+const alertSchema = new Schema(
+  {
+    profileId: { type: ObjectId, ref: "Profile", required: true },
+    /** When the medicines were due. */
+    slot: { type: Date, required: true },
+    localDate: { type: String, required: true },
+    localTime: { type: String, required: true },
+    medicationIds: { type: [ObjectId], default: [] },
+    /** Medicine labels at the time of the alert (kept even if a medicine is renamed later). */
+    medicines: { type: [String], default: [] },
+    status: { type: String, enum: ALERT_STATUSES, default: "open" },
+    reminderSentAt: { type: Date, default: null },
+    followUpSentAt: { type: Date, default: null },
+    escalatedAt: { type: Date, required: true },
+    notifiedUserIds: { type: [ObjectId], default: [] },
+    notifiedNames: { type: [String], default: [] },
+    /** Set when nobody acknowledged in time and the rest of the circle was alerted too. */
+    widenedAt: { type: Date, default: null },
+    widenedNames: { type: [String], default: [] },
+    acknowledgedAt: { type: Date, default: null },
+    acknowledgedById: { type: ObjectId, ref: "User", default: null },
+    acknowledgedByName: { type: String, default: null },
+    resolvedAt: { type: Date, default: null },
+    resolvedByName: { type: String, default: null },
+    /** What was finally recorded: "taken", "skipped", "missed" or "mixed". */
+    resolution: { type: String, default: null },
+  },
+  { timestamps: true },
+);
+alertSchema.index({ profileId: 1, slot: 1 }, { unique: true });
+alertSchema.index({ profileId: 1, escalatedAt: -1 });
+alertSchema.index({ status: 1, escalatedAt: 1 });
+export const Alert = defineModel("Alert", alertSchema);
 
 // ---------------------------------------------------------------------------
 // ReminderLog: guarantees each reminder email is sent at most once.

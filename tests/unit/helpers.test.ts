@@ -66,6 +66,6 @@ describe("database mappers", () => {
       timezone: "Asia/Kolkata",
       passcodeUpdatedAt: new Date("2026-01-01T00:00:00Z"),
     });
-    expect(profile).toMatchObject({ conditions: [], allergies: [], elderEmail: null, missedAfterMinutes: 30, escalateAfterMinutes: 60 });
+    expect(profile).toMatchObject({ conditions: [], allergies: [], elderEmail: null, followUpAfterMinutes: 15, escalateAfterMinutes: 30 });
   });
 });

@@ -1,5 +1,6 @@
 import "server-only";
 import { redirect } from "next/navigation";
+import { can, FORBIDDEN_MESSAGES, type Capability } from "@/lib/permissions";
 import type { MemberContext } from "@/lib/types";
 import { findMemberContext, getCurrentUser } from "./dal";
 
@@ -12,17 +13,24 @@ export class ForbiddenError extends Error {
 }
 
 /**
- * Authorizes a server action against a care profile. Every action calls this itself;
+ * Authorizes a server action against a care profile: the user must be in its care circle and, when
+ * asked, have the role-based capability (see lib/permissions.ts). Every action calls this itself;
  * hiding buttons in the UI is never treated as security.
  */
-export async function authorizeMember(profileId: string, options: { admin?: boolean } = {}): Promise<MemberContext> {
+export async function authorizeMember(
+  profileId: string,
+  options: { admin?: boolean; capability?: Capability } = {},
+): Promise<MemberContext> {
   const context = await findMemberContext(profileId);
   if (!context) {
     if (!(await getCurrentUser())) redirect("/login");
     throw new ForbiddenError();
   }
   if (options.admin && !context.membership.isAdmin) {
-    throw new ForbiddenError("Only care-circle admins can do this.");
+    throw new ForbiddenError(FORBIDDEN_MESSAGES.manageCircle);
+  }
+  if (options.capability && !can(context.membership, options.capability)) {
+    throw new ForbiddenError(FORBIDDEN_MESSAGES[options.capability]);
   }
   return context;
 }

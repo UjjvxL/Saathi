@@ -81,10 +81,13 @@ function dose(overrides: Partial<DoseItem>): DoseItem {
     localDate: "2026-11-15",
     localTime: "08:00",
     scheduledFor: "2026-11-15T02:30:00.000Z",
-    status: "due",
+    status: "pending",
     canMark: true,
     takenAt: null,
     loggedByName: null,
+    loggedAt: null,
+    assigneeId: null,
+    alert: null,
     ...overrides,
   };
 }
@@ -108,7 +111,7 @@ describe("DoseTimeline", () => {
   it("groups doses by time and shows who marked them", () => {
     render(<DoseTimeline profileId="p1" doses={doses} timezone="Asia/Kolkata" />);
     expect(screen.getAllByRole("listitem").length).toBeGreaterThan(3);
-    expect(screen.getAllByText("Take now")).toHaveLength(2);
+    expect(screen.getAllByText("Pending")).toHaveLength(2);
     expect(screen.getByText(/Taken at 1:05 PM · marked by Priya/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /I took all 2/ })).toBeInTheDocument();
     // Doses more than two hours away can't be marked yet.

@@ -105,12 +105,12 @@ async function CircleView({ params }: { params: Promise<{ profileId: string }> }
           {isAdmin ? (
             <ReminderSettingsForm
               action={updateReminderSettings.bind(null, profile.id)}
-              missedAfterMinutes={profile.missedAfterMinutes}
+              followUpAfterMinutes={profile.followUpAfterMinutes}
               escalateAfterMinutes={profile.escalateAfterMinutes}
             />
           ) : (
             <p className="font-medium">
-              Nudge after {profile.missedAfterMinutes} min · family alert after {profile.escalateAfterMinutes} min
+              Follow-up after {profile.followUpAfterMinutes} min · caretaker alert after {profile.escalateAfterMinutes} min
             </p>
           )}
         </Card>

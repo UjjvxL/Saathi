@@ -16,7 +16,7 @@ async function logDose(
   medicationId: { toString(): string },
   localDate: string,
   localTime: string,
-  status: "taken" | "skipped" | "missed",
+  status: "taken" | "skipped" | "missed" | "unconfirmed",
 ) {
   await DoseLog.create({
     profileId,
@@ -39,7 +39,7 @@ describe("today's doses", () => {
     const items = await getDoseItems(toProfileDTO(profile), ["2026-03-10"], NOW);
     expect(items.map((item) => [item.localTime, item.status, item.canMark])).toEqual([
       ["08:00", "taken", true],
-      ["13:45", "due", true], // 15 minutes ago, inside the 30-minute grace period
+      ["13:45", "pending", true], // 15 minutes ago, before the 30-minute escalation time
       ["20:00", "upcoming", false], // more than 2 hours away
     ]);
     expect(items[0].loggedByName).toBe("Priya");
@@ -57,7 +57,7 @@ describe("today's doses", () => {
     const items = await getDoseItems(toProfileDTO(profile), ["2026-03-10"], NOW);
     expect(items.map((item) => `${item.name} ${item.localTime} ${item.status}`)).toEqual([
       "Metformin 08:00 taken",
-      "Metformin 09:00 missed",
+      "Metformin 09:00 unconfirmed",
     ]);
   });
 
@@ -87,7 +87,7 @@ describe("history", () => {
     const report = await getHistory(toProfileDTO(profile), 7, NOW);
     expect(report.from).toBe("2026-03-04");
     expect(report.to).toBe("2026-03-10");
-    expect(report.overall).toEqual({ taken: 2, skipped: 1, missed: 0, total: 3, rate: 67 });
+    expect(report.overall).toEqual({ taken: 2, skipped: 1, missed: 0, unconfirmed: 0, pending: 0, total: 3, rate: 67 });
     expect(report.days.find((day) => day.date === "2026-03-07")?.summary.total).toBe(0);
     expect(report.byMedication).toHaveLength(1);
   });

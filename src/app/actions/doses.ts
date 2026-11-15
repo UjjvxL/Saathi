@@ -8,15 +8,14 @@ import { connectDB } from "@/lib/db";
 import { recordDose, undoDose } from "@/lib/doses";
 import { toMedicationDTO, toProfileDTO, toSchedule } from "@/lib/dto";
 import { DoseLog, Medication, Profile } from "@/lib/models";
+import { DOSE_DECISIONS, type DoseDecision } from "@/lib/constants";
 import { CONFIRM_DOSE_PURPOSE } from "@/lib/reminders";
 import { isScheduledDose } from "@/lib/schedule";
 import type { FormState } from "@/lib/validation";
 import { guarded } from "./helpers";
 
-type DoseDecision = "taken" | "skipped";
-
 function isDecision(value: unknown): value is DoseDecision {
-  return value === "taken" || value === "skipped";
+  return DOSE_DECISIONS.includes(value as DoseDecision);
 }
 
 export async function markDose(
@@ -29,7 +28,7 @@ export async function markDose(
 ): Promise<FormState> {
   return guarded(async () => {
     if (!isDecision(status)) return { message: "Unknown action." };
-    const context = await authorizeMember(profileId);
+    const context = await authorizeMember(profileId, { capability: "logDoses" });
     const outcome = await recordDose({
       profile: context.profile,
       medicationId,
@@ -51,7 +50,7 @@ export async function unmarkDose(
   _formData: FormData,
 ): Promise<FormState> {
   return guarded(async () => {
-    const context = await authorizeMember(profileId);
+    const context = await authorizeMember(profileId, { capability: "logDoses" });
     const outcome = await undoDose({
       profile: context.profile,
       medicationId,
@@ -74,7 +73,7 @@ export async function markSlot(
 ): Promise<FormState> {
   return guarded(async () => {
     if (!isDecision(status)) return { message: "Unknown action." };
-    const context = await authorizeMember(profileId);
+    const context = await authorizeMember(profileId, { capability: "logDoses" });
     const scheduledFor = new Date(slotIso);
     if (Number.isNaN(scheduledFor.getTime())) return { message: "Unknown time slot." };
 
@@ -107,7 +106,7 @@ export async function markSlot(
  */
 export async function confirmDoseSlot(token: string, status: DoseDecision, _prev: FormState, _formData: FormData): Promise<FormState> {
   const expired: FormState = { message: "This link has expired. Please open the app to update today’s medicines." };
-  if (!isDecision(status)) return { message: "Unknown action." };
+  if (status !== "taken" && status !== "skipped") return { message: "Unknown action." };
   const claims = await verifyPurposeToken(token, CONFIRM_DOSE_PURPOSE);
   if (!claims || typeof claims.profileId !== "string" || typeof claims.slot !== "string") return expired;
 

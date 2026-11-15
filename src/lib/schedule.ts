@@ -32,10 +32,15 @@ export interface ScheduledDose {
 export interface AdherenceSummary {
   taken: number;
   skipped: number;
+  /** Confirmed by a person as not taken. */
   missed: number;
-  /** Doses that are already decided (taken + skipped + missed). */
+  /** Nobody confirmed the dose by the escalation time. */
+  unconfirmed: number;
+  /** Due now and waiting for confirmation (not counted in the rate yet). */
+  pending: number;
+  /** Doses whose outcome counts: taken + skipped + missed + unconfirmed. */
   total: number;
-  /** Percentage of decided doses that were taken, or null if there were none. */
+  /** Percentage of counted doses that were taken, or null if there were none. */
   rate: number | null;
 }
 
@@ -121,17 +126,22 @@ export function isScheduledDose(med: ScheduleLike, scheduledFor: Date, zone: str
 }
 
 /** Works out what a dose looks like right now, given its log entry (if any). */
+/**
+ * The status shown for a dose. A recorded status always wins. Otherwise the dose is "upcoming" before
+ * its time, "pending" while reminders are going out, and "unconfirmed" once the escalation time has
+ * passed. Saathi never assumes a dose was taken.
+ */
 export function doseStatus(
   scheduledFor: Date,
   logStatus: DoseLogStatus | null | undefined,
   now: Date,
-  missedAfterMinutes: number,
+  escalateAfterMinutes: number,
 ): DoseStatus {
   if (logStatus) return logStatus;
   const minutesLate = (now.getTime() - scheduledFor.getTime()) / 60_000;
   if (minutesLate < 0) return "upcoming";
-  if (minutesLate <= missedAfterMinutes) return "due";
-  return "missed";
+  if (minutesLate < escalateAfterMinutes) return "pending";
+  return "unconfirmed";
 }
 
 /** Stable key for one dose of one medication. */
@@ -140,16 +150,12 @@ export function doseKey(medicationId: string, scheduledFor: Date): string {
 }
 
 export function summarizeAdherence(statuses: DoseStatus[]): AdherenceSummary {
-  let taken = 0;
-  let skipped = 0;
-  let missed = 0;
+  const counts = { taken: 0, skipped: 0, missed: 0, unconfirmed: 0, pending: 0 };
   for (const status of statuses) {
-    if (status === "taken") taken++;
-    else if (status === "skipped") skipped++;
-    else if (status === "missed") missed++;
+    if (status !== "upcoming") counts[status]++;
   }
-  const total = taken + skipped + missed;
-  return { taken, skipped, missed, total, rate: total ? Math.round((taken / total) * 100) : null };
+  const total = counts.taken + counts.skipped + counts.missed + counts.unconfirmed;
+  return { ...counts, total, rate: total ? Math.round((counts.taken / total) * 100) : null };
 }
 
 export type DayPart = "morning" | "afternoon" | "evening" | "night";

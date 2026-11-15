@@ -204,7 +204,7 @@ async function processDoses(
                 profileId: profile.id,
                 localDate: dose.localDate,
                 localTime: dose.localTime,
-                status: "missed",
+                status: "unconfirmed",
               },
             },
             upsert: true,
@@ -231,8 +231,8 @@ async function processDoses(
         kind: "alert",
         message: `Missed ${timeLabel} dose: ${medicines.join(", ")}.${to.length ? " Family alerted by email." : ""}`,
       });
-    } else if (minutesLate >= profile.missedAfterMinutes) {
-      if (minutesLate > profile.missedAfterMinutes + NUDGE_WINDOW_MINUTES) continue;
+    } else if (minutesLate >= profile.followUpAfterMinutes) {
+      if (minutesLate > profile.followUpAfterMinutes + NUDGE_WINDOW_MINUTES) continue;
       const sent = await sendOnce(
         `dose-missed:${profile.id}:${slot}`,
         profile.id,
@@ -250,7 +250,7 @@ async function processDoses(
         summary.missed++;
         summary.emails += sent;
       }
-    } else if (minutesLate >= -REMINDER_LEAD_MINUTES && minutesLate < Math.min(10, profile.missedAfterMinutes)) {
+    } else if (minutesLate >= -REMINDER_LEAD_MINUTES && minutesLate < profile.followUpAfterMinutes) {
       const sent = await sendOnce(
         `dose-upcoming:${profile.id}:${slot}`,
         profile.id,

@@ -1,4 +1,4 @@
-import { Check, CircleX, Undo2 } from "lucide-react";
+import { Ban, Check, CircleX, Undo2, UserCheck } from "lucide-react";
 import { markDose, markSlot, unmarkDose } from "@/app/actions/doses";
 import type { DoseStatus } from "@/lib/constants";
 import { dayPart, formatClock, formatTime12h, type DayPart } from "@/lib/schedule";
@@ -18,9 +18,12 @@ const STATUS: Record<DoseStatus, { label: string; tone: Tone }> = {
   taken: { label: "Taken", tone: "success" },
   skipped: { label: "Skipped", tone: "neutral" },
   missed: { label: "Missed", tone: "error" },
-  due: { label: "Take now", tone: "warning" },
-  upcoming: { label: "Later", tone: "info" },
+  unconfirmed: { label: "Unconfirmed", tone: "error" },
+  pending: { label: "Pending", tone: "warning" },
+  upcoming: { label: "Upcoming", tone: "info" },
 };
+
+const DECIDED: DoseStatus[] = ["taken", "skipped", "missed"];
 
 interface Slot {
   scheduledFor: string;
@@ -39,14 +42,28 @@ function groupSlots(doses: DoseItem[]): Slot[] {
 }
 
 function slotDot(slot: Slot): string {
-  if (slot.doses.some((dose) => dose.status === "due")) return "bg-amber-500 ring-amber-100";
-  if (slot.doses.some((dose) => dose.status === "missed")) return "bg-red-500 ring-red-100";
+  if (slot.doses.some((dose) => dose.status === "pending")) return "bg-amber-500 ring-amber-100";
+  if (slot.doses.some((dose) => dose.status === "missed" || dose.status === "unconfirmed")) return "bg-red-500 ring-red-100";
   if (slot.doses.every((dose) => dose.status === "taken")) return "bg-emerald-500 ring-emerald-100";
   if (slot.doses.every((dose) => dose.status === "taken" || dose.status === "skipped")) return "bg-stone-400 ring-stone-100";
   return "bg-white ring-stone-200";
 }
 
-export function DoseTimeline({ profileId, doses, timezone }: { profileId: string; doses: DoseItem[]; timezone: string }) {
+export function DoseTimeline({
+  profileId,
+  doses,
+  timezone,
+  memberNames = {},
+  canLog = true,
+}: {
+  profileId: string;
+  doses: DoseItem[];
+  timezone: string;
+  /** userId -> name, to show who is responsible for each medicine. */
+  memberNames?: Record<string, string>;
+  /** Whether the viewer may record doses (the server checks this too). */
+  canLog?: boolean;
+}) {
   const slots = groupSlots(doses);
 
   return (
@@ -57,9 +74,9 @@ export function DoseTimeline({ profileId, doses, timezone }: { profileId: string
       />
       {slots.map((slot) => {
         const open = slot.doses.filter(
-          (dose) => (dose.status === "due" || dose.status === "missed" || dose.status === "upcoming") && dose.canMark,
+          (dose) => (dose.status === "pending" || dose.status === "unconfirmed" || dose.status === "upcoming") && dose.canMark,
         );
-        const hasDue = slot.doses.some((dose) => dose.status === "due");
+        const hasDue = slot.doses.some((dose) => dose.status === "pending");
         return (
           <li key={slot.scheduledFor} className="grid gap-2 sm:grid-cols-[6.5rem_minmax(0,1fr)] sm:gap-6">
             <div className="flex items-baseline gap-2 sm:relative sm:block sm:pt-5 sm:text-right">
@@ -81,10 +98,17 @@ export function DoseTimeline({ profileId, doses, timezone }: { profileId: string
             >
               <ul className="divide-y divide-stone-100">
                 {slot.doses.map((dose) => (
-                  <DoseRow key={dose.key} profileId={profileId} dose={dose} timezone={timezone} />
+                  <DoseRow
+                    key={dose.key}
+                    profileId={profileId}
+                    dose={dose}
+                    timezone={timezone}
+                    assigneeName={dose.assigneeId ? memberNames[dose.assigneeId] : undefined}
+                    canLog={canLog}
+                  />
                 ))}
               </ul>
-              {open.length >= 2 ? (
+              {canLog && open.length >= 2 ? (
                 <div className="flex items-center justify-between gap-3 border-t border-stone-100 bg-stone-50/70 px-5 py-3">
                   <p className="text-sm text-stone-600">Took them all at once?</p>
                   <ActionButton
@@ -105,8 +129,20 @@ export function DoseTimeline({ profileId, doses, timezone }: { profileId: string
   );
 }
 
-function DoseRow({ profileId, dose, timezone }: { profileId: string; dose: DoseItem; timezone: string }) {
-  const decided = dose.status === "taken" || dose.status === "skipped";
+function DoseRow({
+  profileId,
+  dose,
+  timezone,
+  assigneeName,
+  canLog,
+}: {
+  profileId: string;
+  dose: DoseItem;
+  timezone: string;
+  assigneeName?: string;
+  canLog: boolean;
+}) {
+  const decided = DECIDED.includes(dose.status);
   return (
     <li className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0 space-y-1">
@@ -122,19 +158,39 @@ function DoseRow({ profileId, dose, timezone }: { profileId: string; dose: DoseI
         {dose.instructions ? <p className="text-stone-600">{dose.instructions}</p> : null}
         {decided && dose.loggedByName ? (
           <p className="text-sm text-stone-500">
-            {dose.status === "taken" ? "Taken" : "Skipped"}
+            {dose.status === "taken" ? "Taken" : dose.status === "skipped" ? "Skipped" : "Not taken"}
             {dose.status === "taken" && dose.takenAt ? ` at ${formatClock(new Date(dose.takenAt), timezone)}` : ""} ·
             marked by {dose.loggedByName}
           </p>
         ) : null}
+        {dose.status === "unconfirmed" ? <FollowUpNote dose={dose} timezone={timezone} /> : null}
+        {assigneeName ? (
+          <p className="flex items-center gap-1.5 text-sm text-stone-500">
+            <UserCheck className="size-3.5" aria-hidden="true" /> Responsible: {assigneeName}
+          </p>
+        ) : null}
       </div>
-      <DoseActions profileId={profileId} dose={dose} />
+      {canLog ? <DoseActions profileId={profileId} dose={dose} /> : null}
     </li>
   );
 }
 
+/** Who is following up on an unconfirmed dose (from its escalation). */
+function FollowUpNote({ dose, timezone }: { dose: DoseItem; timezone: string }) {
+  if (!dose.alert) return <p className="text-sm text-red-800">Nobody confirmed this dose in time.</p>;
+  if (dose.alert.status === "acknowledged" && dose.alert.acknowledgedByName) {
+    return (
+      <p className="text-sm text-stone-600">
+        {dose.alert.acknowledgedByName} is following up
+        {dose.alert.acknowledgedAt ? ` (since ${formatClock(new Date(dose.alert.acknowledgedAt), timezone)})` : ""}.
+      </p>
+    );
+  }
+  return <p className="text-sm text-red-800">The care circle was alerted. Waiting for someone to follow up.</p>;
+}
+
 function DoseActions({ profileId, dose }: { profileId: string; dose: DoseItem }) {
-  if (dose.status === "taken" || dose.status === "skipped") {
+  if (DECIDED.includes(dose.status)) {
     return (
       <ActionButton
         action={unmarkDose.bind(null, profileId, dose.medicationId, dose.scheduledFor)}
@@ -147,7 +203,8 @@ function DoseActions({ profileId, dose }: { profileId: string; dose: DoseItem })
     );
   }
   if (!dose.canMark) return null;
-  const prominent = dose.status === "due";
+  const prominent = dose.status === "pending";
+  const late = dose.status === "unconfirmed";
   return (
     <div className="flex flex-wrap items-start gap-2">
       <ActionButton
@@ -156,7 +213,7 @@ function DoseActions({ profileId, dose }: { profileId: string; dose: DoseItem })
         size={prominent ? "lg" : "md"}
         pendingLabel="Saving…"
       >
-        <Check aria-hidden="true" /> {dose.status === "missed" ? "Taken late" : "I took it"}{" "}
+        <Check aria-hidden="true" /> {late ? "Taken late" : "I took it"}{" "}
         <span className="sr-only">for {dose.name}</span>
       </ActionButton>
       <ActionButton
@@ -166,6 +223,15 @@ function DoseActions({ profileId, dose }: { profileId: string; dose: DoseItem })
       >
         <CircleX aria-hidden="true" /> Skip <span className="sr-only">{dose.name}</span>
       </ActionButton>
+      {late ? (
+        <ActionButton
+          action={markDose.bind(null, profileId, dose.medicationId, dose.scheduledFor, "missed")}
+          variant="secondary"
+          confirmMessage={`Record that ${dose.name} was not taken?`}
+        >
+          <Ban aria-hidden="true" /> Not taken <span className="sr-only">{dose.name}</span>
+        </ActionButton>
+      ) : null}
     </div>
   );
 }

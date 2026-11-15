@@ -8,26 +8,26 @@ export interface EmailContent {
   text: string;
 }
 
-type Tone = "info" | "warning" | "danger";
+export type EmailTone = "info" | "warning" | "danger";
 
-const TONE_COLORS: Record<Tone, string> = {
+const TONE_COLORS: Record<EmailTone, string> = {
   info: "#0f766e",
   warning: "#b45309",
   danger: "#b91c1c",
 };
 
-interface LayoutOptions {
+export interface LayoutOptions {
   subject: string;
   heading: string;
   paragraphs: string[];
   items?: string[];
   cta?: { label: string; url: string };
   secondaryLink?: { label: string; url: string };
-  tone?: Tone;
+  tone?: EmailTone;
 }
 
 /** Builds a simple, large-type email (all text is escaped) plus a plain-text version. */
-function render(options: LayoutOptions): EmailContent {
+export function render(options: LayoutOptions): EmailContent {
   const color = TONE_COLORS[options.tone ?? "info"];
   const paragraphs = options.paragraphs
     .map((p) => `<p style="margin:0 0 14px;font-size:18px;line-height:1.5;color:#1c1917">${escapeHtml(p)}</p>`)

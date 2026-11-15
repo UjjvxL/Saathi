@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarCheck, History, Pill, Stethoscope, Users } from "lucide-react";
+import { CalendarCheck, ChartColumn, History, Pill, Stethoscope, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -9,8 +9,9 @@ const TABS = [
   { path: "", label: "Today", icon: CalendarCheck },
   { path: "/medications", label: "Medicines", icon: Pill },
   { path: "/appointments", label: "Appointments", icon: Stethoscope },
-  { path: "/history", label: "History", icon: History },
   { path: "/circle", label: "Care circle", icon: Users },
+  { path: "/insights", label: "Insights", icon: ChartColumn },
+  { path: "/history", label: "History", icon: History },
 ];
 
 export function ProfileNav({ profileId }: { profileId: string }) {

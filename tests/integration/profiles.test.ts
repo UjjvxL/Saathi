@@ -221,14 +221,14 @@ describe("settings", () => {
 
     await signInAs(member);
     expect(
-      (await updateReminderSettings(profileId, {}, formData({ missedAfterMinutes: 30, escalateAfterMinutes: 60 }))).message,
+      (await updateReminderSettings(profileId, {}, formData({ followUpAfterMinutes: 15, escalateAfterMinutes: 30 }))).message,
     ).toMatch(/Only care-circle admins/);
 
     await signInAs(owner);
-    const invalid = await updateReminderSettings(profileId, {}, formData({ missedAfterMinutes: 60, escalateAfterMinutes: 45 }));
+    const invalid = await updateReminderSettings(profileId, {}, formData({ followUpAfterMinutes: 60, escalateAfterMinutes: 45 }));
     expect(invalid.errors?.escalateAfterMinutes).toBeTruthy();
-    expect((await updateReminderSettings(profileId, {}, formData({ missedAfterMinutes: 45, escalateAfterMinutes: 120 }))).ok).toBe(true);
-    expect(await Profile.findById(profileId).lean()).toMatchObject({ missedAfterMinutes: 45, escalateAfterMinutes: 120 });
+    expect((await updateReminderSettings(profileId, {}, formData({ followUpAfterMinutes: 45, escalateAfterMinutes: 120 }))).ok).toBe(true);
+    expect(await Profile.findById(profileId).lean()).toMatchObject({ followUpAfterMinutes: 45, escalateAfterMinutes: 120 });
   });
 
   it("updates profile details (admins only) and email alert preferences (anyone)", async () => {

@@ -1,6 +1,6 @@
 // Input validation for every form and API. Server actions never trust client input.
 import { z } from "zod";
-import { FREQUENCIES, MED_FORMS, ROLES } from "./constants";
+import { ESCALATE_RANGE, FOLLOW_UP_RANGE, FREQUENCIES, MED_FORMS, ROLES } from "./constants";
 import { isValidDate, isValidTime, isValidTimezone } from "./schedule";
 import { normalizeCareId } from "./security";
 
@@ -14,6 +14,13 @@ const optionalEmail = z
   .toLowerCase()
   .max(254)
   .refine((value) => value === "" || z.email().safeParse(value).success, "Enter a valid email address")
+  .transform((value) => value || null);
+
+/** A member chosen as responsible ("" means nobody). Membership is checked again in the action. */
+export const assigneeField = z
+  .string()
+  .trim()
+  .refine((value) => value === "" || /^[a-f\d]{24}$/i.test(value), "Choose someone from the care circle")
   .transform((value) => value || null);
 
 const dateString = z.string().trim().refine(isValidDate, "Pick a valid date");
@@ -110,6 +117,7 @@ export const medicationSchema = z
     stock: optionalCount,
     unitsPerDose,
     refillThreshold: optionalCount,
+    assigneeId: assigneeField.default(null),
   })
   .superRefine((value, ctx) => {
     if (value.frequency === "specific_days" && value.daysOfWeek.length === 0) {
@@ -128,6 +136,7 @@ export const appointmentSchema = z.object({
   date: dateString,
   time: timeString,
   notes: text(1000),
+  assigneeId: assigneeField.default(null),
 });
 
 export const joinSchema = z.object({
@@ -138,13 +147,14 @@ export const joinSchema = z.object({
 
 export const reminderSettingsSchema = z
   .object({
-    missedAfterMinutes: z.coerce.number().int().min(10).max(240),
-    escalateAfterMinutes: z.coerce.number().int().min(15).max(480),
+    followUpAfterMinutes: z.coerce.number().int().min(FOLLOW_UP_RANGE.min).max(FOLLOW_UP_RANGE.max),
+    escalateAfterMinutes: z.coerce.number().int().min(ESCALATE_RANGE.min).max(ESCALATE_RANGE.max),
   })
-  .refine((value) => value.escalateAfterMinutes > value.missedAfterMinutes, {
+  .refine((value) => value.escalateAfterMinutes > value.followUpAfterMinutes, {
     path: ["escalateAfterMinutes"],
-    message: "The family alert must come after the missed-dose reminder",
+    message: "The caretaker alert must come after the follow-up reminder",
   });
+
 
 /** Medicines suggested by the AI prescription reader (validated again before saving). */
 export const scannedMedicineSchema = z.object({

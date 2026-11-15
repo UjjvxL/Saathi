@@ -9,7 +9,8 @@ import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge, EmptyState, LoadingCards, Notice, ProgressBar } from "@/components/ui/feedback";
 import { requireMemberContext } from "@/lib/auth/dal";
-import { getTodayOverview, type TodayOverview } from "@/lib/data";
+import { getMembers, getTodayOverview, type TodayOverview } from "@/lib/data";
+import { can } from "@/lib/permissions";
 import { formatInstant, formatLocalDate, formatLongDate, formatTime12h } from "@/lib/schedule";
 import type { DoseItem } from "@/lib/types";
 
@@ -26,8 +27,9 @@ export default function TodayPage({ params }: PageProps<"/p/[profileId]">) {
 const SPOKEN_STATUS: Record<DoseItem["status"], string> = {
   taken: "already taken",
   skipped: "skipped",
-  missed: "not taken yet. It was due earlier",
-  due: "please take it now",
+  missed: "recorded as not taken",
+  unconfirmed: "not confirmed yet. It was due earlier",
+  pending: "please take it now",
   upcoming: "later today",
 };
 
@@ -48,11 +50,13 @@ function buildSpeech(name: string, overview: TodayOverview): string {
 
 async function TodayView({ params }: { params: Promise<{ profileId: string }> }) {
   const { profileId } = await params;
-  const { profile } = await requireMemberContext(profileId);
-  const overview = await getTodayOverview(profile);
+  const { profile, membership } = await requireMemberContext(profileId);
+  const [overview, members] = await Promise.all([getTodayOverview(profile), getMembers(profile.id)]);
   const { doses, summary } = overview;
   const base = `/p/${profile.id}`;
   const allDone = doses.length > 0 && summary.taken === doses.length;
+  const notTaken = summary.missed + summary.unconfirmed;
+  const memberNames = Object.fromEntries(members.map((member) => [member.userId, member.name]));
 
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
@@ -77,11 +81,16 @@ async function TodayView({ params }: { params: Promise<{ profileId: string }> })
           {doses.length ? (
             <div className="mt-5 space-y-4">
               <ProgressBar value={(summary.taken / doses.length) * 100} label="Doses taken today" />
-              {overview.dueCount || summary.missed || summary.skipped || allDone ? (
+              {overview.pendingCount || notTaken || summary.skipped || allDone ? (
                 <div className="flex flex-wrap gap-2">
-                  {overview.dueCount ? (
+                  {overview.pendingCount ? (
                     <Badge tone="warning" dot>
-                      {overview.dueCount} to take now
+                      {overview.pendingCount} pending
+                    </Badge>
+                  ) : null}
+                  {summary.unconfirmed ? (
+                    <Badge tone="error" dot>
+                      {summary.unconfirmed} unconfirmed
                     </Badge>
                   ) : null}
                   {summary.missed ? (
@@ -121,7 +130,13 @@ async function TodayView({ params }: { params: Promise<{ profileId: string }> })
         ) : null}
 
         {doses.length ? (
-          <DoseTimeline profileId={profile.id} doses={doses} timezone={profile.timezone} />
+          <DoseTimeline
+            profileId={profile.id}
+            doses={doses}
+            timezone={profile.timezone}
+            memberNames={memberNames}
+            canLog={can(membership, "logDoses")}
+          />
         ) : (
           <EmptyState
             icon={<Pill />}
