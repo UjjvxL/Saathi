@@ -365,7 +365,7 @@ Collections and indexes are created automatically on first use.
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM` | no | Email sending. Without them, emails are printed to the server console |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | no | AI prescription scanning and insight summaries ([get a key](https://aistudio.google.com/apikey)) |
 | `EMAIL_OUTBOX_DIR` | no | Development only: also save previewed emails as JSON files in this folder |
-| `REMINDER_INTERVAL_SECONDS` | no | How often the app checks reminders by itself (default 60 in development, off in production) |
+| `REMINDER_INTERVAL_SECONDS` | no | Make the app check reminders by itself every N seconds (off by default). Only for a copy with its own database |
 
 **Gmail:**
 1. Turn on 2-Step Verification and create an [App Password](https://myaccount.google.com/apppasswords).
@@ -374,9 +374,13 @@ Collections and indexes are created automatically on first use.
 
 ### 3. Reminders locally
 
-During `npm run dev` the app checks reminders by itself every minute (see `src/instrumentation.ts`), so
-emails arrive on time locally. You can also click **Settings → Check reminders now** (admins) or run
-`npm run reminders:local`. In production a scheduler calls `/api/cron/reminders` instead (see below).
+Locally, click **Settings → Check reminders now** (admins) or run `npm run reminders:local`. To have
+the app check by itself every minute, set `REMINDER_INTERVAL_SECONDS=60` (see `src/instrumentation.ts`).
+
+Only do that when your local copy has **its own database**. If it shares the live site’s database,
+whichever copy checks first sends the email, and emails from your computer link to
+`http://localhost:3000`, which won’t open on anyone’s phone. In production a scheduler calls
+`/api/cron/reminders` instead (see below).
 
 ## Testing
 
