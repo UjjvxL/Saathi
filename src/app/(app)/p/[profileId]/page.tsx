@@ -9,7 +9,8 @@ import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge, EmptyState, LoadingCards, Notice, ProgressBar } from "@/components/ui/feedback";
 import { requireMemberContext } from "@/lib/auth/dal";
-import { getMembers, getTodayOverview, type TodayOverview } from "@/lib/data";
+import { getMembers, getOutstandingAlerts, getTodayOverview, type TodayOverview } from "@/lib/data";
+import { AlertCard } from "@/components/alert-card";
 import { can } from "@/lib/permissions";
 import { formatInstant, formatLocalDate, formatLongDate, formatTime12h } from "@/lib/schedule";
 import type { DoseItem } from "@/lib/types";
@@ -51,7 +52,11 @@ function buildSpeech(name: string, overview: TodayOverview): string {
 async function TodayView({ params }: { params: Promise<{ profileId: string }> }) {
   const { profileId } = await params;
   const { profile, membership } = await requireMemberContext(profileId);
-  const [overview, members] = await Promise.all([getTodayOverview(profile), getMembers(profile.id)]);
+  const [overview, members, alerts] = await Promise.all([
+    getTodayOverview(profile),
+    getMembers(profile.id),
+    getOutstandingAlerts(profile.id),
+  ]);
   const { doses, summary } = overview;
   const base = `/p/${profile.id}`;
   const allDone = doses.length > 0 && summary.taken === doses.length;
@@ -62,6 +67,20 @@ async function TodayView({ params }: { params: Promise<{ profileId: string }> })
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <AutoRefresh />
       <div className="min-w-0 space-y-8">
+        {alerts.length ? (
+          <section aria-label="Alerts that need follow-up" className="space-y-3">
+            {alerts.map((alert) => (
+              <AlertCard
+                key={alert.id}
+                alert={alert}
+                profileId={profile.id}
+                timezone={profile.timezone}
+                canAcknowledge={can(membership, "acknowledgeAlerts")}
+                showDate
+              />
+            ))}
+          </section>
+        ) : null}
         <Card className="p-6 sm:p-7">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>

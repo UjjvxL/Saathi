@@ -172,6 +172,8 @@ export interface DashboardEntry {
   notTakenToday: number;
   nextAppointment: AppointmentDTO | null;
   lowStockCount: number;
+  /** Escalations from the last 48 hours that nobody has acknowledged yet. */
+  waitingAlerts: number;
 }
 
 export async function getDashboard(userId: string, now: Date = new Date()): Promise<DashboardEntry[]> {
@@ -185,7 +187,10 @@ export async function getDashboard(userId: string, now: Date = new Date()): Prom
       const profile = toProfileDTO(doc);
       const membership = memberships.find((m) => m.profileId.toString() === profile.id);
       if (!membership) return null;
-      const overview = await getTodayOverview(profile, now);
+      const [overview, waitingAlerts] = await Promise.all([
+        getTodayOverview(profile, now),
+        Alert.countDocuments({ profileId: profile.id, status: "open", slot: { $gte: new Date(now.getTime() - 48 * 60 * 60 * 1000) } }),
+      ]);
       return {
         profile,
         membership: toMembershipDTO(membership),
@@ -195,6 +200,7 @@ export async function getDashboard(userId: string, now: Date = new Date()): Prom
         notTakenToday: overview.summary.missed + overview.summary.unconfirmed,
         nextAppointment: overview.nextAppointments[0] ?? null,
         lowStockCount: overview.lowStock.length,
+        waitingAlerts,
       };
     }),
   );
@@ -281,6 +287,15 @@ export async function getAlerts(
     .limit(options.limit ?? 50)
     .lean();
   return docs.map(toAlertDTO);
+}
+
+/** Escalations from the last 48 hours that still need someone (open or being followed up). */
+export async function getOutstandingAlerts(profileId: string, now: Date = new Date()): Promise<AlertDTO[]> {
+  return getAlerts(profileId, {
+    since: new Date(now.getTime() - 48 * 60 * 60 * 1000),
+    statuses: ["open", "acknowledged"],
+    limit: 10,
+  });
 }
 
 export async function getActivity(profileId: string, limit = 40): Promise<ActivityDTO[]> {

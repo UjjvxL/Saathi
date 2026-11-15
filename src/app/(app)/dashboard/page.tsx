@@ -111,8 +111,13 @@ function ProfileCard({ entry }: { entry: DashboardEntry }) {
         <ProgressBar value={percent} label={`Doses taken today for ${profile.name}`} />
       </div>
 
-      {entry.pendingNow || entry.notTakenToday || entry.lowStockCount ? (
+      {entry.waitingAlerts || entry.pendingNow || entry.notTakenToday || entry.lowStockCount ? (
         <div className="flex flex-wrap gap-2">
+          {entry.waitingAlerts ? (
+            <Badge tone="error" dot>
+              {entry.waitingAlerts} alert{entry.waitingAlerts === 1 ? "" : "s"} waiting for someone
+            </Badge>
+          ) : null}
           {entry.pendingNow ? (
             <Badge tone="warning" dot>
               {plural(entry.pendingNow, "dose")} pending
